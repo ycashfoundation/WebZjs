@@ -17,6 +17,6 @@ export function useSigningBackend(): SigningBackend | null {
 
   return useMemo(() => {
     if (status !== 'unlocked' || !mnemonic) return null;
-    return new BrowserSigningBackend('main', mnemonic, 0);
+    return new BrowserSigningBackend(mnemonic, 0);
   }, [status, mnemonic]);
 }

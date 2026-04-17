@@ -1,5 +1,4 @@
 import { useWebZjsContext } from '../context/WebzjsContext';
-import { Pczt } from '@chainsafe/webzjs-wallet';
 import { yecToZats } from '../utils';
 import { useWebZjsActions } from './useWebzjsActions';
 import { useSigningBackend } from './signing/useSigningBackend';
@@ -20,12 +19,16 @@ interface IUsePczt {
   lastError: string | null;
 }
 
+// Status labels are kept from the PCZT era for compatibility with the
+// TransferResult UI; internally we now run a non-PCZT pipeline so "Signing"
+// and "Proving" collapse into a single "Preparing" stage. The granular labels
+// will return for the Snap-based backend in Phase E3.
 export enum PcztTransferStatus {
   CHECK_WALLET = 'Checking wallet',
-  CREATING_PCZT = 'Creating transaction',
+  CREATING_PCZT = 'Preparing transaction',
   SIGNING_PCZT = 'Signing transaction',
   PROVING_PCZT = 'Proving transaction',
-  SENDING_PCZT = 'Sending transaction',
+  SENDING_PCZT = 'Broadcasting transaction',
   SEND_SUCCESSFUL = 'Send successful',
   SEND_ERROR = 'Send error',
 }
@@ -40,36 +43,10 @@ export const usePczt = (): IUsePczt => {
   );
   const [lastError, setLastError] = useState<string | null>(null);
 
-  const createPCZT = async (
+  const handlePcztTransaction = async (
     accountId: number,
     toAddress: string,
     value: string,
-  ) => {
-    const valueInZats = yecToZats(value);
-    return await state.webWallet!.pczt_create(accountId, toAddress, valueInZats);
-  };
-
-  const provePczt = async (pczt: Pczt): Promise<Pczt> => state.webWallet!.pczt_prove(pczt);
-
-  const sendPczt = async (signedPczt: Pczt) => {
-    try {
-      await state.webWallet!.pczt_send(signedPczt);
-    } catch (error) {
-      console.error('Error sending PCZT:', error);
-      setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
-      throw error;
-    }
-  };
-
-  const handlePcztGenericTransaction = async (
-    accountId: number,
-    toAddress: string,
-    value: string,
-    createPcztFunc: (
-      accountId: number,
-      toAddress: string,
-      value: string,
-    ) => Promise<Pczt>,
   ) => {
     if (!state.webWallet) return;
     if (!signingBackend) {
@@ -80,34 +57,28 @@ export const usePczt = (): IUsePczt => {
     setLastError(null);
 
     try {
+      // create_proposed_transactions bundles build + prove + sign; there's
+      // no externally visible sign/prove split. Surface a single "preparing"
+      // state for the UI so the TransferResult stepper doesn't lie.
       setPcztTransferStatus(PcztTransferStatus.CREATING_PCZT);
-      const pczt = await createPcztFunc(accountId, toAddress, value);
+      const amountZats = yecToZats(value);
+      await signingBackend.sendShielded(
+        state.webWallet,
+        accountId,
+        toAddress,
+        amountZats,
+      );
 
-      setPcztTransferStatus(PcztTransferStatus.SIGNING_PCZT);
-      const signedPczt = await signingBackend.signPczt(pczt);
-
-      setPcztTransferStatus(PcztTransferStatus.PROVING_PCZT);
-      const provedPczt = await provePczt(signedPczt);
-
-      setPcztTransferStatus(PcztTransferStatus.SENDING_PCZT);
-      await sendPczt(provedPczt);
-
-      // Persist wallet state immediately after broadcast to prevent data loss
-      // on tab crash.
+      // sendShielded already broadcasts; persist the wallet bytes so the
+      // pending transaction survives a tab crash.
       await flushDbToStore();
-
       setPcztTransferStatus(PcztTransferStatus.SEND_SUCCESSFUL);
-
-      // Refresh summary; totalBalance includes pending amounts so the UI
-      // stays correct without a special post-tx handler.
       await syncStateWithWallet();
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : String(error);
       console.error('Transaction error:', error);
 
       let errorMessage = rawMessage;
-
-      // Pretty-print the common InsufficientFunds case.
       if (rawMessage.includes('InsufficientFunds')) {
         const availableMatch = rawMessage.match(/available:\s*Zatoshis\((\d+)\)/);
         const requiredMatch = rawMessage.match(/required:\s*Zatoshis\((\d+)\)/);
@@ -130,24 +101,20 @@ export const usePczt = (): IUsePczt => {
   };
 
   const handlePcztShieldTransaction = async (
-    accountId: number,
-    toAddress: string,
-    value: string,
+    _accountId: number,
+    _toAddress: string,
+    _value: string,
   ) => {
-    await handlePcztGenericTransaction(
-      accountId,
-      toAddress,
-      value,
-      async (acctId) => state.webWallet!.pczt_shield(acctId),
+    // Shielding from transparent → Sapling goes through `pczt_shield`, which
+    // returns a PCZT that the Phase E2 browser backend can't finalize (the
+    // PCZT signer/io_finalizer roles don't implement v4 sighash yet).
+    // The Shield Balance page warns about this and the button stays disabled
+    // once the feature-flag check fires.
+    setLastError(
+      'Shielding transparent funds is not yet supported on Ycash. The PCZT finalizer ' +
+        'needs v4 sighash support upstream before this path works on v4-only networks.',
     );
-  };
-
-  const handlePcztTransaction = async (
-    accountId: number,
-    toAddress: string,
-    value: string,
-  ) => {
-    await handlePcztGenericTransaction(accountId, toAddress, value, createPCZT);
+    setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
   };
 
   return {

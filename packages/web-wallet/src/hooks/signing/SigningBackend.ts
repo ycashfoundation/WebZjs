@@ -1,4 +1,4 @@
-import { Pczt, WebWallet } from '@chainsafe/webzjs-wallet';
+import { WebWallet } from '@chainsafe/webzjs-wallet';
 
 /**
  * Abstraction over "where the spending key lives." The rest of the send flow
@@ -6,10 +6,18 @@ import { Pczt, WebWallet } from '@chainsafe/webzjs-wallet';
  * browser-only backend (Phase E2) for a Snap-based backend (Phase E3, once the
  * Ycash-aware snap is rebuilt) without touching the UI layer.
  *
- * `importAccount` takes the freshly-constructed WebWallet and is responsible
- * for populating it with exactly one account (whatever method the backend
- * supports — seed phrase import, UFVK import, hardware wallet, etc.). It
- * returns the account id assigned by WebZjs.
+ * The interface is deliberately high-level — `sendShielded` covers the full
+ * propose → build → prove → sign → broadcast pipeline in one call — because
+ * the two concrete backends split the pipeline very differently:
+ *
+ * - `BrowserSigningBackend` holds the seed phrase in memory and uses
+ *   `WebWallet::create_proposed_transactions` (classic one-shot build) rather
+ *   than PCZT. PCZT's `EffectsOnly` proxy authorization can't compute the
+ *   ZIP-243 (v4) sighash that Ycash requires, so the PCZT pipeline is a
+ *   no-go until upstream adds v4 Sapling support.
+ * - `SnapSigningBackend` (future) would keep the seed inside the snap and
+ *   use PCZT (`pczt_create` → snap sign → `pczt_prove` → `pczt_send`) because
+ *   that's the only way the snap boundary makes sense.
  */
 export interface SigningBackend {
   /** Human-readable tag used in logs and diagnostics. */
@@ -26,8 +34,14 @@ export interface SigningBackend {
   ): Promise<number>;
 
   /**
-   * Apply spend signatures to a PCZT. Returned PCZT is ready to be handed to
-   * `WebWallet::pczt_prove` for SNARK generation.
+   * Build, authorize, and broadcast a shielded transfer to `toAddress` for
+   * `amountZats` Zatoshis. Returns the flattened 32-byte-per-txid bytes that
+   * `WebWallet::send_authorized_transactions` yields.
    */
-  signPczt(pczt: Pczt): Promise<Pczt>;
+  sendShielded(
+    wallet: WebWallet,
+    accountId: number,
+    toAddress: string,
+    amountZats: bigint,
+  ): Promise<Uint8Array>;
 }
