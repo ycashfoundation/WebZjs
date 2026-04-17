@@ -57,4 +57,9 @@ export class BrowserSigningBackend implements SigningBackend {
     await wallet.send_authorized_transactions(txids);
     return txids;
   }
+
+  async shieldAll(wallet: WebWallet, accountId: number): Promise<void> {
+    // `wallet.shield` handles propose → prove (in a worker) → broadcast.
+    await wallet.shield(accountId, this.mnemonic, this.accountHdIndex);
+  }
 }

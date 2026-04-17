@@ -44,4 +44,10 @@ export interface SigningBackend {
     toAddress: string,
     amountZats: bigint,
   ): Promise<Uint8Array>;
+
+  /**
+   * Shield every transparent UTXO for `accountId` into the Sapling pool.
+   * Resolves when the shielding transaction has been broadcast.
+   */
+  shieldAll(wallet: WebWallet, accountId: number): Promise<void>;
 }

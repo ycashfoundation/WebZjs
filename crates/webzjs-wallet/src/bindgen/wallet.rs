@@ -476,6 +476,47 @@ impl WebWallet {
             .map(Into::into)
     }
 
+    /// Shield every transparent UTXO for the given account into the
+    /// Sapling pool and broadcast the resulting transaction(s).
+    ///
+    /// Ycash-compatible counterpart to [`Self::pczt_shield`]: the PCZT
+    /// Signer/IoFinalizer roles don't implement ZIP-243 sighash, so on
+    /// v4-only networks like Ycash the PCZT shield path can't finalize.
+    /// This entry point uses the classic
+    /// `propose_shielding → create_proposed_transactions →
+    /// send_authorized_transactions` pipeline inside a spawned worker,
+    /// the same shape [`Self::create_proposed_transactions`] uses.
+    ///
+    /// Proving is CPU-bound and can take tens of seconds; render progress
+    /// UI around this call.
+    pub async fn shield(
+        &self,
+        account_id: u32,
+        seed_phrase: &str,
+        account_hd_index: u32,
+    ) -> Result<(), Error> {
+        assert!(!thread::is_web_worker_thread());
+
+        let (usk, _) = usk_from_seed_str(seed_phrase, account_hd_index, &self.inner.network)?;
+        let proposal = self.inner.propose_shielding(account_id.into()).await?;
+        let inner = self.inner.clone();
+
+        let handle = thread::Builder::new()
+            .name("shield_worker".to_string())
+            .spawn_async(move || async move {
+                assert!(thread::is_web_worker_thread());
+                inner
+                    .create_proposed_transactions(proposal, &usk)
+                    .await
+                    .unwrap_throw()
+            })
+            .unwrap_throw()
+            .join_async();
+        let txids = handle.await.unwrap();
+
+        self.inner.send_authorized_transactions(&txids).await
+    }
+
     /// Creates a PCZT (Partially Constructed Zcash Transaction).
     ///
     /// A Proposal is created similar to `create_proposed_transactions` and then a PCZT is constructed from it.

@@ -101,20 +101,30 @@ export const usePczt = (): IUsePczt => {
   };
 
   const handlePcztShieldTransaction = async (
-    _accountId: number,
+    accountId: number,
     _toAddress: string,
     _value: string,
   ) => {
-    // Shielding from transparent → Sapling goes through `pczt_shield`, which
-    // returns a PCZT that the Phase E2 browser backend can't finalize (the
-    // PCZT signer/io_finalizer roles don't implement v4 sighash yet).
-    // The Shield Balance page warns about this and the button stays disabled
-    // once the feature-flag check fires.
-    setLastError(
-      'Shielding transparent funds is not yet supported on Ycash. The PCZT finalizer ' +
-        'needs v4 sighash support upstream before this path works on v4-only networks.',
-    );
-    setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
+    if (!state.webWallet) return;
+    if (!signingBackend) {
+      setLastError('Wallet must be unlocked to shield funds.');
+      setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
+      return;
+    }
+    setLastError(null);
+
+    try {
+      setPcztTransferStatus(PcztTransferStatus.CREATING_PCZT);
+      await signingBackend.shieldAll(state.webWallet, accountId);
+      await flushDbToStore();
+      setPcztTransferStatus(PcztTransferStatus.SEND_SUCCESSFUL);
+      await syncStateWithWallet();
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      console.error('Shielding error:', error);
+      setLastError(rawMessage);
+      setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
+    }
   };
 
   return {

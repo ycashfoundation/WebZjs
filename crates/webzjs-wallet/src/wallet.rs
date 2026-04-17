@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::num::NonZeroUsize;
 
 use bip0039::{English, Mnemonic};
@@ -342,7 +343,7 @@ where
             request,
             self.min_confirmations,
         )
-        .map_err(|_e| Error::Generic("something bad happened when calling propose transfer. Possibly insufficient balance..".to_string()))?;
+        .map_err(|e| Error::Generic(format!("propose_transfer failed: {e:?}")))?;
         tracing::info!("Transfer proposal created");
         Ok(proposal)
     }
@@ -353,9 +354,9 @@ where
     /// Note: At the moment this requires a USK but ideally we want to be able to hand the signing off to a separate service
     ///     e.g. browser plugin, hardware wallet, etc. Will need to look into refactoring librustzcash create_proposed_transactions to allow for this
     ///
-    pub async fn create_proposed_transactions(
+    pub async fn create_proposed_transactions<N>(
         &self,
-        proposal: Proposal<StandardFeeRule, NoteRef>,
+        proposal: Proposal<StandardFeeRule, N>,
         usk: &UnifiedSpendingKey,
     ) -> Result<NonEmpty<TxId>, Error> {
         let prover = LocalTxProver::bundled();
@@ -447,6 +448,85 @@ where
         // send the transactions to the network!!
         tracing::info!("Sending transactions");
         self.send_authorized_transactions(&txids).await
+    }
+
+    ///
+    /// Build a shielding proposal (classic, non-PCZT) that sweeps every
+    /// transparent UTXO for the account into the Sapling pool. The caller
+    /// is expected to feed the proposal into `create_proposed_transactions`
+    /// for proving/signing and then `send_authorized_transactions` for the
+    /// broadcast.
+    ///
+    /// Distinct from [`Self::pczt_shield`] in that the returned proposal
+    /// does not pass through PCZT — the Ycash chain stays on v4 Sapling
+    /// forever and the PCZT Signer/IoFinalizer roles don't implement
+    /// ZIP-243 sighash, so PCZT shielding can't finalize. The classic
+    /// TransactionBuilder pipeline has no such limitation.
+    pub async fn propose_shielding(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Proposal<StandardFeeRule, Infallible>, Error> {
+        tracing::info!("propose_shielding: starting for account {:?}", account_id);
+
+        // Block until the wallet is within 10 blocks of the tip — shielding
+        // with a stale anchor will be rejected downstream.
+        let mut client = self.client.clone();
+        let chain_tip: u32 = client
+            .get_latest_block(service::ChainSpec::default())
+            .await?
+            .into_inner()
+            .height
+            .try_into()
+            .expect("block heights must fit into u32");
+        let wallet_height = self.db.read().await.chain_height()?;
+        if let Some(wallet_height) = wallet_height {
+            let wallet_height_u32: u32 = wallet_height.into();
+            if chain_tip.saturating_sub(wallet_height_u32) > 10 {
+                drop(client);
+                self.sync().await?;
+            }
+        } else {
+            return Err(Error::Generic(
+                "Wallet has not been synced yet. Please sync before shielding.".to_string(),
+            ));
+        }
+
+        // Change on Ycash has to go to Sapling — Orchard isn't active. On
+        // Zcash the account will already have an Orchard pool so the
+        // fallback-pool hint never fires; this just picks the right default
+        // for v4-only networks.
+        let change_strategy = MultiOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedProtocol::Sapling,
+            DustOutputPolicy::default(),
+            SplitPolicy::with_min_output_value(
+                NonZeroUsize::new(self.target_note_count)
+                    .ok_or(Error::FailedToCreateTransaction)?,
+                Zatoshis::from_u64(self.min_split_output_value)?,
+            ),
+        );
+        let input_selector = GreedyInputSelector::new();
+        let mut db = self.db.write().await;
+
+        let max_height = db
+            .chain_height()?
+            .ok_or_else(|| Error::Generic("No chain height, can't shield".to_string()))?;
+        let transparent_balances =
+            db.get_transparent_balances(account_id, max_height.into(), self.min_confirmations)?;
+        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
+
+        propose_shielding::<_, _, _, _, <W as WalletCommitmentTrees>::Error>(
+            &mut *db,
+            &self.network,
+            &input_selector,
+            &change_strategy,
+            SHIELDING_THRESHOLD,
+            &from_addrs,
+            account_id,
+            self.min_confirmations,
+        )
+        .map_err(|e| Error::Generic(format!("propose_shielding failed: {e:?}")))
     }
 
     pub async fn pczt_shield(&self, account_id: AccountId) -> Result<Pczt, Error> {
