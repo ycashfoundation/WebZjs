@@ -550,6 +550,28 @@ impl WebWallet {
         }
     }
 
+    /// Get the current Sapling shielded address for the given account, encoded
+    /// with the network's Sapling HRP (`zs`/`ztestsapling` on Zcash, `ys`/`ytestsapling`
+    /// on Ycash).
+    ///
+    /// This is the right entry point for networks that don't support Unified Addresses
+    /// (i.e. Ycash — NU5 never activated), where [`get_current_address`] would
+    /// panic attempting to encode a UA.
+    pub async fn get_current_address_sapling(&self, account_id: u32) -> Result<String, Error> {
+        let db = self.inner.db.read().await;
+        if let Some(address) = db.get_last_generated_address_matching(
+            account_id.into(),
+            UnifiedAddressRequest::ALLOW_ALL,
+        )? {
+            address
+                .sapling()
+                .map(|sa| zcash_keys::encoding::encode_payment_address_p(&self.inner.network, sa))
+                .ok_or(Error::AccountNotFound(account_id))
+        } else {
+            Err(Error::AccountNotFound(account_id))
+        }
+    }
+
     /// Get transaction history for an account
     ///
     /// # Arguments
