@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebZjs → Ycash smoke test</title>
+    <style>
+      body { font-family: -apple-system, sans-serif; margin: 2rem; max-width: 52rem; line-height: 1.5; }
+      pre { background: #f4f4f4; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+      .ok   { color: #0a7a36; }
+      .fail { color: #b71c1c; }
+      .pending { color: #666; }
+      h1 { margin-bottom: 0.25rem; }
+      h1 + p { color: #666; margin-top: 0; }
+    </style>
+  </head>
+  <body>
+    <h1>WebZjs → Ycash smoke test</h1>
+    <p>Calls <code>get_latest_block()</code> against <code>https://lite.ycash.xyz</code>.</p>
+    <div id="log"></div>
+    <script type="module" src="index.js"></script>
+  </body>
+</html>

@@ -1686,6 +1686,19 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@chainsafe/webzjs-ycash-smoke@workspace:packages/ycash-smoke":
+  version: 0.0.0-use.local
+  resolution: "@chainsafe/webzjs-ycash-smoke@workspace:packages/ycash-smoke"
+  dependencies:
+    "@chainsafe/webzjs-keys": "workspace:^"
+    "@chainsafe/webzjs-requests": "workspace:^"
+    "@chainsafe/webzjs-wallet": "workspace:^"
+    "@parcel/core": "npm:^2.13.3"
+    express: "npm:^4.21.2"
+    parcel: "npm:^2.13.3"
+  languageName: unknown
+  linkType: soft
+
 "@chainsafe/webzjs-zcash-snap@workspace:packages/snap":
   version: 0.0.0-use.local
   resolution: "@chainsafe/webzjs-zcash-snap@workspace:packages/snap"

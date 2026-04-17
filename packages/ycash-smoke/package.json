@@ -1,0 +1,22 @@
+{
+  "name": "@chainsafe/webzjs-ycash-smoke",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Minimal in-browser smoke test that the Ycash-retargeted WebZjs wasm packages can talk to lite.ycash.xyz via the gRPC-web proxy.",
+  "source": "src/index.html",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "rm -rf dist && parcel build src/index.html --dist-dir dist"
+  },
+  "dependencies": {
+    "@chainsafe/webzjs-keys": "workspace:^",
+    "@chainsafe/webzjs-requests": "workspace:^",
+    "@chainsafe/webzjs-wallet": "workspace:^"
+  },
+  "devDependencies": {
+    "@parcel/core": "^2.13.3",
+    "express": "^4.21.2",
+    "parcel": "^2.13.3"
+  }
+}
