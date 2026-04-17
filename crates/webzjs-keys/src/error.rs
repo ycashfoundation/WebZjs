@@ -14,6 +14,8 @@ pub enum Error {
     PcztSign(String),
     #[error("Error attempting to get seed fingerprint.")]
     SeedFingerprint,
+    #[error("Invalid BIP39 seed phrase")]
+    InvalidSeedPhrase,
     #[error("Failed to derive transparent address from UFVK")]
     TransparentAddressDerivation,
 }

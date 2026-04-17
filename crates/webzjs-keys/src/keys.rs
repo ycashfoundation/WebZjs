@@ -43,6 +43,20 @@ impl SeedFingerprint {
             inner: zip32::fingerprint::SeedFingerprint::from_bytes(bytes),
         })
     }
+
+    /// Derive a SeedFingerprint from a BIP39 seed phrase. The phrase is converted
+    /// to its 64-byte seed via PBKDF2 (empty passphrase), then hashed. Primary
+    /// consumer is a browser-side signing backend that keeps the phrase itself
+    /// outside the Rust heap.
+    pub fn from_seed_phrase(seed_phrase: &str) -> Result<SeedFingerprint, Error> {
+        let mnemonic = <Mnemonic<English>>::from_phrase(seed_phrase)
+            .map_err(|_| Error::InvalidSeedPhrase)?;
+        let seed = mnemonic.to_seed("");
+        Ok(Self {
+            inner: zip32::fingerprint::SeedFingerprint::from_seed(&seed)
+                .ok_or(Error::SeedFingerprint)?,
+        })
+    }
 }
 
 impl From<SeedFingerprint> for zip32::fingerprint::SeedFingerprint {
@@ -117,6 +131,35 @@ impl UnifiedSpendingKey {
         ProofGenerationKey {
             inner: self.inner.sapling().expsk.proof_generation_key(),
         }
+    }
+
+    /// Construct a UnifiedSpendingKey from a BIP39 seed phrase.
+    ///
+    /// # Arguments
+    ///
+    /// * `network` - Must be either "main" or "test"
+    /// * `seed_phrase` - 24-word BIP39 mnemonic
+    /// * `hd_index` - [ZIP32](https://zips.z.cash/zip-0032) hierarchical deterministic index of the account
+    ///
+    /// This is the entry point used by the browser signing backend — the phrase
+    /// is decrypted from IndexedDB at sign time and handed in here to recover
+    /// the spending key without persisting any raw seed bytes.
+    pub fn from_seed_phrase(
+        network: &str,
+        seed_phrase: &str,
+        hd_index: u32,
+    ) -> Result<UnifiedSpendingKey, Error> {
+        let network = Network::from_str(network)?;
+        let mnemonic = <Mnemonic<English>>::from_phrase(seed_phrase)
+            .map_err(|_| Error::InvalidSeedPhrase)?;
+        let seed = mnemonic.to_seed("");
+        Ok(Self {
+            inner: zcash_keys::keys::UnifiedSpendingKey::from_seed(
+                &network,
+                &seed,
+                AccountId::try_from(hd_index)?,
+            )?,
+        })
     }
 }
 
