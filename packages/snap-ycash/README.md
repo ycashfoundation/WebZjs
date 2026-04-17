@@ -1,39 +1,41 @@
-# WebZjs Zcash Snap
+# WebZjs Ycash Snap
 
-## 🔐 Overview
+## Overview
 
-WebZjs Zcash Snap is a MetaMask Snap that brings Zcash functionality directly into the MetaMask browser extension. WebZjs is the first JavaScript SDK for Zcash, enabling seamless integration of Zcash privacy features for web users.
+WebZjs Ycash Snap is a MetaMask Snap that brings Ycash (YEC) functionality into the MetaMask browser extension. It holds the seed inside the MetaMask sandbox and signs partially-constructed Ycash transactions (PCZTs) on behalf of the [Ycash web wallet](../web-wallet).
 
-## 📘 Project Description
+This is a Ycash-aware fork of the original `@chainsafe/webzjs-zcash-snap`. Key differences:
 
-Snap uses a Rust library [WebZjs](https://github.com/ChainSafe/WebZjs) compiled to WebAssembly (Wasm). It is meant to be used in conjunction with WebZjs web-wallet.
+- BIP44 coin type `347` (Ycash) instead of `133` (Zcash).
+- Proposed name / dialogs / install copy say Ycash, not Zcash.
+- Birthday block reference values use `YCASH_FORK_HEIGHT` (570000) instead of NU5 activation.
+- Consumes `@chainsafe/webzjs-keys` built against `ycashfoundation/librustzcash-nu61`, so `new UnifiedSpendingKey('main', ...)` derives on Ycash mainnet parameters.
+- Signs v4 (ZIP-243) Sapling PCZTs. Ycash never activated NU5, so every shielded transaction it signs is v4. This exercises the PCZT v4 sighash path landed in librustzcash-ycash `1c42c5eb`.
 
-## 🛠 Prerequisites
+## Prerequisites
 
-[WebZjs](https://github.com/ChainSafe/WebZjs)
+- Node.js ≥ 18.18
+- Yarn 4
+- MetaMask Flask (for development): https://docs.metamask.io/snaps/get-started/install-flask/
+- Wasm packages built: `just build` at the repo root
 
-- Node.js
-- Yarn
-- MetaMask Browser Extension (MetaMask Flask for development purposes) [Install MM Flask](https://docs.metamask.io/snaps/get-started/install-flask/)
+## Development
 
-## 🔨 Development
+The snap manifest (`snap.manifest.json`) controls which origins can communicate with the snap via `allowedOrigins`. `scripts/generate-manifest.js` adds/strips localhost origins for dev vs prod — do not edit `allowedOrigins` by hand.
 
-The snap manifest (`snap.manifest.json`) controls which origins can communicate with the snap via `allowedOrigins`. A script (`scripts/generate-manifest.js`) handles switching between dev and production origins automatically — you should not need to edit the manifest by hand.
+### Scripts
 
-### Build Scripts
+- `yarn dev` / `yarn start` — add localhost origins to `allowedOrigins`, watch for changes, serve on :8080
+- `yarn build` — strip localhost origins, run a production build
+- `yarn manifest:dev` / `yarn manifest:prod` — just the manifest edits
 
-- **`yarn dev`** / **`yarn start`** - Adds `http://localhost:3000` to `allowedOrigins`, then watches for changes
-- **`yarn build`** - Strips any localhost origins from `allowedOrigins` and runs a production build
+### Steps
 
-### Development Steps
+1. `yarn install` from the repo root
+2. `just build` (builds wasm packages — needed by the snap's keys import)
+3. `yarn snap-ycash:start` from the repo root (or `yarn dev` in this package)
+4. Point the web wallet at `local:http://localhost:8080` (its default snap origin)
 
-1. Install dependencies with `yarn install`
-2. For local development: `yarn dev` (automatically adds localhost to allowed origins)
-3. For production: `yarn build` (automatically removes localhost from allowed origins)
-4. Host snap on localhost http://localhost:8080 with `yarn serve`
+### Do not commit a dev manifest
 
-### CI: Allowed Origins Check
-
-Two CI workflows (`check-snap-manifest.yml` and `check-snap-allowed-origins.yml`) verify that `snap.manifest.json` on `main` only contains the production origin `["https://webzjs.chainsafe.dev"]`. If localhost is present, the check will fail.
-
-**Do not commit `snap.manifest.json` after running `yarn dev`** — it will contain `http://localhost:3000`. Run `yarn build` or `yarn manifest:prod` first to reset it before committing.
+Running `yarn dev` rewrites `snap.manifest.json` to include `http://localhost:3000`. Run `yarn build` or `yarn manifest:prod` before committing to reset it.
