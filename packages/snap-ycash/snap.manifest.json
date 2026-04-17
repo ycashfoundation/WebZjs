@@ -7,7 +7,7 @@
     "url": "https://github.com/ycashfoundation/WebZjs.git"
   },
   "source": {
-    "shasum": "Huwt9/DPY04aKe1SAVWP6dzl7JVMt16XCEtAU9iHYuA=",
+    "shasum": "z8m++03bDJPBo0bg170kWoCOnK6NVe09ZwJ8K4ovT/A=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",
@@ -22,7 +22,9 @@
     "endowment:lifecycle-hooks": {},
     "endowment:webassembly": {},
     "endowment:rpc": {
-      "allowedOrigins": ["https://wallet.ycash.xyz"]
+      "allowedOrigins": [
+        "https://wallet.ycash.xyz"
+      ]
     },
     "snap_getBip44Entropy": [
       {

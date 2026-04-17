@@ -15,8 +15,6 @@ import { signPczt } from './rpc/signPczt';
 import { assert, object, number, optional, string } from 'superstruct';
 import { getSeedFingerprint } from './rpc/getSeedFingerprint';
 import { getProofGenerationKey } from './rpc/getProofGenerationKey';
-import type { OnInstallHandler } from '@metamask/snaps-sdk';
-import { installDialog } from './utils/dialogs';
 
 let wasm: InitOutput;
 
@@ -85,8 +83,8 @@ export const onUserInput: OnUserInputHandler = async ({ id, event }) => {
   }
 };
 
-export const onInstall: OnInstallHandler = async (args) => {
-  if (args.origin === 'https://wallet.ycash.xyz') return;
-
-  await installDialog();
-};
+// onInstall welcome dialog removed — on recent MM Flask builds the hook
+// crashed with "Method not found" before any RPC could run, blocking the
+// whole snap. The dialog was purely promotional; dropping it is a net
+// behavior improvement. If we want a welcome screen back, it should go in
+// the wallet dapp (/connect-snap) instead, where we control the full UI.
