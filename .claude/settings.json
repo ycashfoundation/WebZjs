@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(dig *)",
+      "Bash(nslookup *)",
+      "Bash(host *)",
+      "Bash(curl -s *)",
+      "Bash(curl -sI *)",
+      "Bash(curl -sv *)",
+      "Bash(curl -fsSL *)",
+      "Bash(nc -z *)",
+      "Bash(nc -zv *)",
+      "Bash(xxd *)",
+      "Read(/Users/hloo/dev/librustzcash-ycash/**)",
+      "Edit(/Users/hloo/dev/librustzcash-ycash/**)",
+      "Write(/Users/hloo/dev/librustzcash-ycash/**)",
+      "Read(/Users/hloo/dev/librustzcash-hhanh00/**)",
+      "Read(/Users/hloo/dev/ycash/**)",
+      "Read(/Users/hloo/.claude/projects/-Users-hloo-dev-WebZjs/memory/**)",
+      "Edit(/Users/hloo/.claude/projects/-Users-hloo-dev-WebZjs/memory/**)",
+      "Write(/Users/hloo/.claude/projects/-Users-hloo-dev-WebZjs/memory/**)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}
