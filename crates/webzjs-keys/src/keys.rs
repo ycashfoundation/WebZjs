@@ -133,6 +133,40 @@ impl ProofGenerationKey {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trip a PGK derived from a deterministic seed through
+    /// to_bytes/from_bytes and verify the reconstructed bytes match. This is
+    /// the core correctness claim that the snap signing backend depends on —
+    /// if it ever regresses, shielded sends through the snap will silently
+    /// fail at proving time.
+    #[test]
+    fn pgk_round_trip_preserves_bytes() {
+        // BIP39 all-zero test seed: 32 bytes of 0x00. Not a real mnemonic,
+        // but `UnifiedSpendingKey::new` accepts any ≥32-byte input directly.
+        let seed = vec![0u8; 32];
+        let usk = UnifiedSpendingKey::new("main", seed.into_boxed_slice(), 0)
+            .expect("usk derivation must succeed");
+        let pgk = usk.to_sapling_proof_generation_key();
+        let bytes_a = pgk.to_bytes();
+        assert_eq!(bytes_a.len(), 64, "PGK serialization must be 64 bytes");
+
+        let restored = ProofGenerationKey::from_bytes(&bytes_a)
+            .expect("round-trip decode must succeed");
+        let bytes_b = restored.to_bytes();
+        assert_eq!(bytes_a, bytes_b, "PGK bytes must round-trip exactly");
+    }
+
+    #[test]
+    fn pgk_from_bytes_rejects_wrong_length() {
+        assert!(ProofGenerationKey::from_bytes(&[0u8; 63]).is_err());
+        assert!(ProofGenerationKey::from_bytes(&[0u8; 65]).is_err());
+        assert!(ProofGenerationKey::from_bytes(&[]).is_err());
+    }
+}
+
 /// A Zcash spending key
 ///
 /// This is a wrapper around the `zcash_keys::keys::SpendingKey` type. It can be created from at least 32 bytes of seed entropy
