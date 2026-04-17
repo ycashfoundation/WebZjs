@@ -30,18 +30,20 @@ console_error_panic_hook = { version = "0.1.7" }
 tonic-web-wasm-client = "0.8.0"
 tokio_with_wasm = { version = "0.7.1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"] }
 
-## Zcash dependencies - Using ChainSafe/librustzcash-nu61 fork with NU6.1 fixes
-zcash_keys = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", features = ["transparent-inputs", "orchard", "sapling", "unstable"] }
-zcash_client_backend = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", default-features = false, features = ["sync", "lightwalletd-tonic", "orchard"] }
-zcash_client_memory = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", features = ["orchard", "transparent-inputs"] }
-zcash_primitives = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61" }
-zcash_transparent = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", default-features = false }
-zcash_address = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61" }
-zcash_proofs = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", default-features = false, features = ["bundled-prover", "multicore"] }
-zip321 = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61" }
+## Zcash dependencies - Using ycashfoundation/librustzcash-nu61 fork, which forks
+## ChainSafe's NU6.1 fork and adds Ycash consensus support (YcashMainNetwork,
+## NetworkUpgrade::Ycash, Y-branch IDs).
+zcash_keys = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", features = ["transparent-inputs", "orchard", "sapling", "unstable"] }
+zcash_client_backend = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["sync", "lightwalletd-tonic", "orchard"] }
+zcash_client_memory = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash" }
+zcash_transparent = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false }
+zcash_address = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash" }
+zcash_proofs = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["bundled-prover", "multicore"] }
+zip321 = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash" }
 zip32 = { version = "0.2" }
-zcash_protocol = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", default-features = false }
-pczt = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", default-features = false, features = ["orchard", "sapling", "transparent"] }
+zcash_protocol = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false }
+pczt = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["orchard", "sapling", "transparent"] }
 sapling = { package = "sapling-crypto", version = "0.6", default-features = false }
 bip32 = { version = "=0.6.0-pre.1", default-features = false, features = ["alloc"] }
 ## gRPC Web dependencies
@@ -50,7 +52,7 @@ tonic = { version = "0.14", default-features = false }
 
 
 # Used in Native tests
-zcash_client_sqlite = { git = "https://github.com/ChainSafe/librustzcash-nu61", branch = "feat/snap-nu61", default-features = false, features = ["unstable", "orchard"] }
+zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["unstable", "orchard"] }
 
 getrandom = { version = "0.2", features = ["js"] }
 thiserror = "1.0.63"

@@ -4,11 +4,16 @@
 use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use zcash_protocol::consensus::{self, Parameters};
+use zcash_protocol::consensus::{
+    self, Parameters, YCASH_MAIN_NETWORK, YCASH_TEST_NETWORK,
+};
 
-/// Enum representing the network type
-/// This is used instead of the `consensus::Network` enum so we can derive
-/// custom serialization and deserialization and from string impls
+/// Network identifier for the Ycash chain.
+///
+/// The variant names are kept as `MainNetwork` / `TestNetwork` for wire and storage
+/// compatibility with wallets created before the Ycash fork of WebZjs, but both
+/// dispatch to Ycash consensus parameters (bip44 coin type 347, Ycash branch IDs,
+/// no NU5 activation). `Zcash` is not a supported network on this build.
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub enum Network {
     #[default]
@@ -29,30 +34,24 @@ impl FromStr for Network {
 }
 
 impl Parameters for Network {
-    fn network_type(&self) -> zcash_protocol::consensus::NetworkType {
+    fn network_type(&self) -> consensus::NetworkType {
         match self {
-            Network::MainNetwork => zcash_protocol::consensus::NetworkType::Main,
-            Network::TestNetwork => zcash_protocol::consensus::NetworkType::Test,
+            Network::MainNetwork => consensus::NetworkType::YcashMain,
+            Network::TestNetwork => consensus::NetworkType::YcashTest,
         }
     }
 
     fn activation_height(&self, nu: consensus::NetworkUpgrade) -> Option<consensus::BlockHeight> {
         match self {
-            Network::MainNetwork => {
-                zcash_protocol::consensus::Network::MainNetwork.activation_height(nu)
-            }
-            Network::TestNetwork => {
-                zcash_protocol::consensus::Network::TestNetwork.activation_height(nu)
-            }
+            Network::MainNetwork => YCASH_MAIN_NETWORK.activation_height(nu),
+            Network::TestNetwork => YCASH_TEST_NETWORK.activation_height(nu),
         }
     }
-}
 
-impl From<Network> for consensus::Network {
-    fn from(network: Network) -> Self {
-        match network {
-            Network::MainNetwork => consensus::Network::MainNetwork,
-            Network::TestNetwork => consensus::Network::TestNetwork,
+    fn branch_id(&self, nu: consensus::NetworkUpgrade) -> consensus::BranchId {
+        match self {
+            Network::MainNetwork => YCASH_MAIN_NETWORK.branch_id(nu),
+            Network::TestNetwork => YCASH_TEST_NETWORK.branch_id(nu),
         }
     }
 }
