@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ZcashYellowPNG } from '../../assets';
+import { LogoYellowPNG } from '../../assets';
 import PageHeading from '../../components/PageHeading/PageHeading';
 import useBalance from '../../hooks/useBalance';
-import { zatsToZec } from '../../utils';
+import { zatsToYec } from '../../utils';
 import Button from 'src/components/Button/Button';
 import { useWebZjsActions } from 'src/hooks';
 import { usePczt } from 'src/hooks/usePCZT';
@@ -16,10 +16,10 @@ export enum ShieldStatus {
 export function ShieldBalance(): React.JSX.Element {
   const { unshieldedBalance } = useBalance();
   const [addresses, setAddresses] = useState<{
-    unifiedAddress: string;
+    saplingAddress: string;
     transparentAddress: string;
   }>({
-    unifiedAddress: '',
+    saplingAddress: '',
     transparentAddress: '',
   });
 
@@ -32,7 +32,7 @@ export function ShieldBalance(): React.JSX.Element {
       const data = await getAccountData();
       if (data)
         setAddresses({
-          unifiedAddress: data.unifiedAddress,
+          saplingAddress: data.saplingAddress,
           transparentAddress: data.transparentAddress,
         });
     };
@@ -42,14 +42,14 @@ export function ShieldBalance(): React.JSX.Element {
 
   const handleShieldBalance = () => {
     setShieldStatus(ShieldStatus.SHIELDING);
-    handlePcztShieldTransaction(1, addresses.unifiedAddress, unshieldedBalance.toString());
+    handlePcztShieldTransaction(1, addresses.saplingAddress, unshieldedBalance.toString());
   }
 
   const isMinimalShieldAmount = useMemo(()=>{
-    // Need at least 0.001 ZEC + fee buffer (0.0015 ZEC total minimum)
+    // Need at least 0.001 YEC + fee buffer (0.0015 YEC total minimum)
     // This accounts for the transaction fee which is deducted from the balance
-    const MINIMUM_SHIELD_AMOUNT = 100000; // 0.001 ZEC
-    const FEE_BUFFER = 50000; // 0.0005 ZEC conservative fee estimate
+    const MINIMUM_SHIELD_AMOUNT = 100000; // 0.001 YEC
+    const FEE_BUFFER = 50000; // 0.0005 YEC conservative fee estimate
     return unshieldedBalance > (MINIMUM_SHIELD_AMOUNT + FEE_BUFFER);
   },[unshieldedBalance])
 
@@ -62,12 +62,12 @@ export function ShieldBalance(): React.JSX.Element {
           </span>
           <div className="px-4 py-2 bg-[#e8e8e8] rounded-3xl flex items-center gap-2.5">
             <img
-              src={ZcashYellowPNG}
-              alt="Zcash Yellow"
+              src={LogoYellowPNG}
+              alt="Ycash"
               className="w-5 h-5"
             />
             <span className="text-[#434343] text-base font-semibold font-inter leading-tight">
-              {zatsToZec(unshieldedBalance)} ZEC
+              {zatsToYec(unshieldedBalance)} YEC
             </span>
           </div>
         </div>
@@ -81,7 +81,7 @@ export function ShieldBalance(): React.JSX.Element {
               </div>
               <div className="p-3 rounded-xl justify-start items-center gap-2 flex">
                 <div className="text-[#4f4f4f] text-base font-normal font-['Roboto'] break-all leading-normal">
-                  {addresses.unifiedAddress}
+                  {addresses.saplingAddress}
                 </div>
               </div>
             </div>
@@ -91,7 +91,7 @@ export function ShieldBalance(): React.JSX.Element {
               </div>
               <div className="px-4 py-1.5 bg-[#e8e8e8] rounded-3xl justify-center items-center gap-2.5 flex">
                 <div className="text-[#0e0e0e] text-sm font-medium font-['Roboto'] leading-[21px]">
-                  {zatsToZec(unshieldedBalance)} ZEC
+                  {zatsToYec(unshieldedBalance)} YEC
                 </div>
               </div>
             </div>
@@ -104,7 +104,7 @@ export function ShieldBalance(): React.JSX.Element {
                 />
                 {!isMinimalShieldAmount && (
                   <div className="text-red-500 text-sm mt-2">
-                    Minimum balance required: 0.0015 ZEC (includes transaction fees). Your balance: {zatsToZec(unshieldedBalance)} ZEC
+                    Minimum balance required: 0.0015 YEC (includes transaction fees). Your balance: {zatsToYec(unshieldedBalance)} YEC
                   </div>
                 )}
               </div>
@@ -123,4 +123,3 @@ export function ShieldBalance(): React.JSX.Element {
     </div>
   );
 }
-

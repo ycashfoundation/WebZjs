@@ -45,22 +45,22 @@ describe('Input', () => {
   });
 
   it('renders suffix text', () => {
-    render(<Input id="test-input" suffix="ZEC" />);
+    render(<Input id="test-input" suffix="YEC" />);
 
-    expect(screen.getByText('ZEC')).toBeInTheDocument();
+    expect(screen.getByText('YEC')).toBeInTheDocument();
   });
 
   it('sets aria-describedby correctly', () => {
-    render(<Input id="amount" suffix="ZEC" />);
+    render(<Input id="amount" suffix="YEC" />);
 
     const input = screen.getByRole('textbox');
     expect(input).toHaveAttribute('aria-describedby', 'amount-suffix');
   });
 
   it('suffix element has correct id for aria-describedby', () => {
-    render(<Input id="amount" suffix="ZEC" />);
+    render(<Input id="amount" suffix="YEC" />);
 
-    const suffix = screen.getByText('ZEC');
+    const suffix = screen.getByText('YEC');
     expect(suffix).toHaveAttribute('id', 'amount-suffix');
   });
 

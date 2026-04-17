@@ -1,7 +1,7 @@
 import { useWebZjsContext } from '../context/WebzjsContext';
 import { Pczt } from '@chainsafe/webzjs-wallet';
 import { useInvokeSnap } from './snaps/useInvokeSnap';
-import { zecToZats } from '../utils';
+import { yecToZats } from '../utils';
 import { useWebZjsActions } from './useWebzjsActions';
 import { useState } from 'react';
 import { SignPcztDetails } from '../types/snap';
@@ -46,11 +46,11 @@ export const usePczt = (): IUsePczt => {
     value: string,
   ) => {
     try {
-      const valueinZats = zecToZats(value);
+      const valueInZats = yecToZats(value);
       return await state.webWallet!.pczt_create(
         accountId,
         toAddress,
-        valueinZats,
+        valueInZats,
       );
     } catch (error) {
       console.error('Error creating PCZT:', error);
@@ -200,16 +200,16 @@ export const usePczt = (): IUsePczt => {
         if (availableMatch && requiredMatch) {
           const available = parseInt(availableMatch[1]);
           const required = parseInt(requiredMatch[1]);
-          const availableZec = (available / 100_000_000).toFixed(8);
-          const requiredZec = (required / 100_000_000).toFixed(8);
-          const shortfallZec = ((required - available) / 100_000_000).toFixed(8);
+          const availableYec = (available / 100_000_000).toFixed(8);
+          const requiredYec = (required / 100_000_000).toFixed(8);
+          const shortfallYec = ((required - available) / 100_000_000).toFixed(8);
 
           console.error('Insufficient Funds Breakdown:');
-          console.error(`  Available: ${available} zatoshis (${availableZec} ZEC)`);
-          console.error(`  Required:  ${required} zatoshis (${requiredZec} ZEC)`);
-          console.error(`  Shortfall: ${required - available} zatoshis (${shortfallZec} ZEC)`);
+          console.error(`  Available: ${available} zatoshis (${availableYec} YEC)`);
+          console.error(`  Required:  ${required} zatoshis (${requiredYec} YEC)`);
+          console.error(`  Shortfall: ${required - available} zatoshis (${shortfallYec} YEC)`);
 
-          errorMessage = `Insufficient balance. Available: ${availableZec} ZEC, Required: ${requiredZec} ZEC (includes fees). You need ${shortfallZec} ZEC more to complete this transaction.`;
+          errorMessage = `Insufficient balance. Available: ${availableYec} YEC, Required: ${requiredYec} YEC (includes fees). You need ${shortfallYec} YEC more to complete this transaction.`;
         } else {
           errorMessage = 'Insufficient balance. Your wallet may still be syncing — please wait for sync to complete or try a Full Resync from the Account Summary page.';
         }

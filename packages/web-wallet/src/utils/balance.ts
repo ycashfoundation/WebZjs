@@ -1,18 +1,18 @@
 import { Decimal } from 'decimal.js';
 
-const ZATS_PER_ZEC = 100_000_000;
+const ZATS_PER_YEC = 100_000_000;
 
-function zatsToZec(zats: number): number {
-  return zats / ZATS_PER_ZEC;
+function zatsToYec(zats: number): number {
+  return zats / ZATS_PER_YEC;
 }
 
-function zecToZats(zecAmount: string): bigint {
+function yecToZats(yecAmount: string): bigint {
 
-  if (!/^\d+(\.\d+)?$/.test(zecAmount)) {
-    throw new Error('Invalid ZEC format: must be positive number');
+  if (!/^\d+(\.\d+)?$/.test(yecAmount)) {
+    throw new Error('Invalid YEC format: must be positive number');
   }
 
-  const amount = new Decimal(zecAmount);
+  const amount = new Decimal(yecAmount);
 
   if (amount.decimalPlaces() > 8) {
     throw new Error('Maximum 8 decimal places allowed');
@@ -22,4 +22,4 @@ function zecToZats(zecAmount: string): bigint {
   return BigInt(zats.toFixed());
 }
 
-export { zatsToZec, zecToZats };
+export { zatsToYec, yecToZats };

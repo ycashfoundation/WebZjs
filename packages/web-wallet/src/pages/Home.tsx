@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { ZcashYellowPNG, FormTransferSvg, MetaMaskLogoPNG } from '../assets';
+import { LogoYellowPNG, FormTransferSvg, MetaMaskLogoPNG } from '../assets';
 import { useNavigate } from 'react-router-dom';
 import { useWebZjsContext } from '../context/WebzjsContext';
 import { useMetaMaskContext } from '../context/MetamaskContext';
@@ -50,10 +50,10 @@ const Home: React.FC = () => {
       if (state.activeAccount !== null && state.activeAccount !== undefined) {
         try {
           const accountData = await getAccountData();
-          if (accountData?.unifiedAddress) {
+          if (accountData?.saplingAddress) {
             navigate('/dashboard/account-summary');
           } else {
-            dispatch({ type: 'set-error', payload: 'Unified address not available for the active account' });
+            dispatch({ type: 'set-error', payload: 'Sapling address not available for the active account' });
             setShowResetInstructions(true);
           }
         } catch (err) {
@@ -106,13 +106,13 @@ const Home: React.FC = () => {
           <FormTransferSvg />
         </div>
         <div className="flex flex-col items-start space-y-8">
-          <img src={ZcashYellowPNG} className="w-10 h-10" alt="Zcash Logo" />
+          <img src={LogoYellowPNG} className="w-10 h-10" alt="Ycash Logo" />
           <h1 className="font-inter font-semibold text-[5rem] leading-[5rem] we">
-            Zcash <br />
+            Ycash <br />
             Web Wallet
           </h1>
           <p className="font-inter">
-            Access the Zcash network from your web browser with the Zcash
+            Access the Ycash network from your web browser with the Ycash
             MetaMask Snap
           </p>
           {showResetInstructions && (
@@ -121,7 +121,7 @@ const Home: React.FC = () => {
               <div>To reset manually:</div>
               <ul className="list-disc pl-6 space-y-1">
                 <li>Open DevTools ➛ Application ➛ IndexedDB ➛ keyval-store ➛ Delete database(s)</li>
-                <li>Open Metamask ➛ ⋮ ➛ Snaps ➛ Zcash Shielded Wallet ➛ Remove Zcash Shielded Wallet ➛ Remove Snap</li>
+                <li>Open Metamask ➛ ⋮ ➛ Snaps ➛ Ycash Shielded Wallet ➛ Remove Ycash Shielded Wallet ➛ Remove Snap</li>
                 <li>Refresh the page and start installation again</li>
               </ul>
               <details className="mt-2">

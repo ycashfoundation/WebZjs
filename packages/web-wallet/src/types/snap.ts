@@ -19,7 +19,7 @@ export type SignPcztDetails = {
  * Cached balance stored in snap state for recovery after cookie/IndexedDB clears.
  */
 export type LastKnownBalance = {
-  shielded: number;     // sapling + orchard (in zats)
+  shielded: number;     // sapling (in zats) — Ycash has no Orchard pool
   unshielded: number;   // transparent (in zats)
   timestamp: number;    // When last updated (ms)
 };

@@ -47,7 +47,7 @@ vi.mock('../hooks', () => ({
 
 // Mock assets
 vi.mock('../assets', () => ({
-  ZcashYellowPNG: 'zcash-logo.png',
+  LogoYellowPNG: 'logo.png',
   FormTransferSvg: () => <div data-testid="form-transfer-svg" />,
   MetaMaskLogoPNG: 'metamask-logo.png',
 }));
@@ -69,7 +69,7 @@ describe('Home', () => {
   it('renders the home page with connect button', () => {
     render(<Home />);
 
-    // The heading has "Zcash" and "Web Wallet" separated by <br>, so use getByRole
+    // The heading has "Ycash" and "Web Wallet" separated by <br>, so use getByRole
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
     expect(screen.getByText('Connect MetaMask Snap')).toBeInTheDocument();
   });
@@ -155,11 +155,11 @@ describe('Home', () => {
     expect(metamaskLogo).toBeInTheDocument();
   });
 
-  it('shows Zcash logo', () => {
+  it('shows Ycash logo', () => {
     render(<Home />);
 
-    const zcashLogo = screen.getByAltText('Zcash Logo');
-    expect(zcashLogo).toBeInTheDocument();
+    const logo = screen.getByAltText('Ycash Logo');
+    expect(logo).toBeInTheDocument();
   });
 
   it('button has correct opacity class when disabled', () => {

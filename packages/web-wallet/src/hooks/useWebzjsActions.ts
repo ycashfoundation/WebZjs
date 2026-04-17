@@ -19,7 +19,7 @@ interface SyncOptions {
 
 interface WebzjsActions {
   getAccountData: () => Promise<
-    { unifiedAddress: string; transparentAddress: string } | undefined
+    { saplingAddress: string; transparentAddress: string } | undefined
   >;
   triggerRescan: () => Promise<void>;
   flushDbToStore: () => Promise<void>;
@@ -103,14 +103,16 @@ export function useWebZjsActions(): WebzjsActions {
 
       if (!state.webWallet) return;
 
-      const unifiedAddress =
-        await state.webWallet.get_current_address(accountIndex);
+      // Ycash never activated NU5, so Unified Addresses cannot be encoded on
+      // this network — fetch a Sapling-only shielded address instead.
+      const saplingAddress =
+        await state.webWallet.get_current_address_sapling(accountIndex);
 
       const transparentAddress =
         await state.webWallet.get_current_address_transparent(accountIndex);
 
       return {
-        unifiedAddress,
+        saplingAddress,
         transparentAddress,
       };
     } catch (error) {
@@ -137,14 +139,13 @@ export function useWebZjsActions(): WebzjsActions {
 
   const cacheBalanceInSnap = useCallback(async (balanceReport: {
     sapling_balance?: number;
-    orchard_balance?: number;
     unshielded_balance?: number;
     pending_change?: number;
     pending_spendable?: number;
   } | null, force = false) => {
     if (!balanceReport) return;
 
-    const confirmed = (balanceReport.sapling_balance ?? 0) + (balanceReport.orchard_balance ?? 0);
+    const confirmed = balanceReport.sapling_balance ?? 0;
     const unshielded = balanceReport.unshielded_balance ?? 0;
     const pending = (balanceReport.pending_change ?? 0) + (balanceReport.pending_spendable ?? 0);
     const total = confirmed + unshielded + pending;

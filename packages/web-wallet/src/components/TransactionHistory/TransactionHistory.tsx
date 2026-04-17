@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTransactionHistory } from '../../hooks/useTransactionHistory';
-import { zatsToZec } from '../../utils';
+import { zatsToYec } from '../../utils';
 import type { TransactionHistoryEntry, TransactionType, TransactionStatus } from '../../types/transaction';
 
 interface TransactionRowProps {
@@ -77,7 +77,7 @@ function TransactionRow({ transaction }: TransactionRowProps) {
         </div>
         <div className="text-right">
           <div className={`font-semibold ${valueColor}`}>
-            {valuePrefix}{zatsToZec(Math.abs(transaction.value))} ZEC
+            {valuePrefix}{zatsToYec(Math.abs(transaction.value))} YEC
           </div>
           {transaction.confirmations > 0 && (
             <div className="text-xs text-gray-500">

@@ -7,19 +7,19 @@ import Loader from '../../components/Loader/Loader';
 import Tab from './Tab';
 
 enum AddressType {
-  UNIFIED = 'unified',
+  SAPLING = 'sapling',
   TRANSPARENT = 'transparent',
 }
 
 function Receive(): React.JSX.Element {
   const { state } = useWebZjsContext();
   const { getAccountData } = useWebZjsActions();
-  const [activeTab, setActiveTab] = useState<AddressType>(AddressType.UNIFIED);
+  const [activeTab, setActiveTab] = useState<AddressType>(AddressType.SAPLING);
   const [addresses, setAddresses] = useState<{
-    unifiedAddress: string;
+    saplingAddress: string;
     transparentAddress: string;
   }>({
-    unifiedAddress: '',
+    saplingAddress: '',
     transparentAddress: '',
   });
 
@@ -34,7 +34,7 @@ function Receive(): React.JSX.Element {
       const data = await getAccountData();
       if (data) {
         setAddresses({
-          unifiedAddress: data.unifiedAddress,
+          saplingAddress: data.saplingAddress,
           transparentAddress: data.transparentAddress,
         });
       }
@@ -46,14 +46,14 @@ function Receive(): React.JSX.Element {
   const loading =
     state.activeAccount === null ||
     state.activeAccount === undefined ||
-    !addresses.unifiedAddress;
+    !addresses.saplingAddress;
 
   const tabs = {
-    [AddressType.UNIFIED]: {
-      label: 'Unified Address',
+    [AddressType.SAPLING]: {
+      label: 'Shielded (Sapling)',
     },
     [AddressType.TRANSPARENT]: {
-      label: 'Transparent Address',
+      label: 'Transparent',
     },
   };
 
@@ -76,8 +76,8 @@ function Receive(): React.JSX.Element {
                 />
               ))}
             </div>
-            {activeTab === AddressType.UNIFIED && (
-              <QrCode address={addresses.unifiedAddress} />
+            {activeTab === AddressType.SAPLING && (
+              <QrCode address={addresses.saplingAddress} />
             )}
             {activeTab === AddressType.TRANSPARENT && (
               <QrCode address={addresses.transparentAddress} />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { zatsToZec } from '../utils';
+import { zatsToYec } from '../utils';
 import { CoinsSvg, ShieldDividedSvg, ShieldSvg } from '../assets';
 import useBalance from '../hooks/useBalance';
 import { usePendingTransactions } from '../hooks/usePendingTransactions';
@@ -51,12 +51,12 @@ function AccountSummary() {
         </div>
         <div className="self-stretch justify-start items-center gap-2 inline-flex">
           <div className="text-black text-2xl font-medium font-['Inter'] leading-9">
-            {zatsToZec(balance)} ZEC
+            {zatsToYec(balance)} YEC
           </div>
         </div>
         {name === 'Total Balance' && hasPending && (
           <div className="text-[#595959] text-sm font-inter">
-            {zatsToZec(spendableBalance)} ZEC spendable
+            {zatsToYec(spendableBalance)} YEC spendable
           </div>
         )}
       </div>
@@ -85,7 +85,7 @@ function AccountSummary() {
             <div key={tx.txid} className="flex items-center gap-3">
               <span className="text-amber-600 text-lg">⏳</span>
               <span className="text-amber-800 font-medium">
-                {tx.tx_type} {zatsToZec(tx.value)} ZEC — waiting for confirmation
+                {tx.tx_type} {zatsToYec(tx.value)} YEC — waiting for confirmation
               </span>
             </div>
           ))}

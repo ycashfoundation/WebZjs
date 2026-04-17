@@ -6,7 +6,7 @@ import {
 import Input from '../Input/Input';
 import Button from '../Button/Button';
 import useBalance from '../../hooks/useBalance';
-import { zecToZats, zatsToZec } from '../../utils/balance';
+import { yecToZats, zatsToYec } from '../../utils/balance';
 
 interface TransferInputProps {
   formData: TransferBalanceFormData;
@@ -48,13 +48,13 @@ export function TransferInput({
     } else {
       // Balance validation with fee buffer
       try {
-        const amountInZats = zecToZats(amount);
-        const FEE_BUFFER = 10_000; // Conservative estimate: 0.0001 ZEC buffer for fees
+        const amountInZats = yecToZats(amount);
+        const FEE_BUFFER = 10_000; // Conservative estimate: 0.0001 YEC buffer for fees
         const totalRequired = Number(amountInZats) + FEE_BUFFER;
 
         if (totalRequired > spendableBalance) {
-          const availableZec = zatsToZec(Math.max(0, spendableBalance - FEE_BUFFER));
-          newErrors.amount = `Insufficient balance. Available (after fees): ${availableZec.toFixed(8)} ZEC`;
+          const availableYec = zatsToYec(Math.max(0, spendableBalance - FEE_BUFFER));
+          newErrors.amount = `Insufficient balance. Available (after fees): ${availableYec.toFixed(8)} YEC`;
         }
       } catch (error) {
         // If conversion fails, let it pass - the error will be caught later
@@ -81,7 +81,7 @@ export function TransferInput({
               <Input
                 label="To:"
                 id="recipient"
-                placeholder="Zcash Address"
+                placeholder="Ycash Address"
                 error={errors.recipient}
                 value={recipient}
                 onChange={(event) => handleChange('recipient')(event)}
@@ -93,7 +93,7 @@ export function TransferInput({
               <Input
                 label="Amount:"
                 id="amount"
-                suffix="ZEC"
+                suffix="YEC"
                 error={errors.amount}
                 placeholder="Enter amount"
                 value={amount}

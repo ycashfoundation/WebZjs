@@ -1,8 +1,11 @@
 import { FC, useState } from 'react';
 import { WebZjsState } from 'src/context/WebzjsContext';
+import { YCASH_FORK_HEIGHT } from '../../config/constants';
 
-// Zcash mainnet activation block (Sapling activation)
-const ZCASH_SAPLING_ACTIVATION = 419200;
+// Minimum birthday for a Ycash wallet. Technically Sapling activated at 419200
+// (pre-fork, shared with Zcash) and pre-fork Sapling notes are addressable on
+// the Ycash chain, but a fresh Ycash wallet should never need a birthday before
+// the 570_000 fork.
 
 export const BlockHeightCard: FC<{
   state: WebZjsState;
@@ -15,8 +18,8 @@ export const BlockHeightCard: FC<{
   const handleResync = () => {
     setShowConfirm(false);
     const birthday = customBirthday ? parseInt(customBirthday, 10) : undefined;
-    if (birthday && birthday < ZCASH_SAPLING_ACTIVATION) {
-      alert(`Birthday must be at least ${ZCASH_SAPLING_ACTIVATION} (Sapling activation)`);
+    if (birthday && birthday < YCASH_FORK_HEIGHT) {
+      alert(`Birthday must be at least ${YCASH_FORK_HEIGHT} (Ycash fork height)`);
       return;
     }
     onFullResync?.(birthday);
@@ -98,14 +101,14 @@ export const BlockHeightCard: FC<{
               </p>
               <div className="flex flex-col gap-1">
                 <label className="text-[#595959] text-xs">
-                  Birthday Block (min: {ZCASH_SAPLING_ACTIVATION})
+                  Birthday Block (min: {YCASH_FORK_HEIGHT})
                 </label>
                 <input
                   type="number"
                   value={customBirthday}
                   onChange={(e) => setCustomBirthday(e.target.value)}
                   placeholder="e.g. 2674500"
-                  min={ZCASH_SAPLING_ACTIVATION}
+                  min={YCASH_FORK_HEIGHT}
                   className="px-2 py-1 border border-[#afafaf] rounded text-sm w-full bg-white text-black"
                 />
               </div>

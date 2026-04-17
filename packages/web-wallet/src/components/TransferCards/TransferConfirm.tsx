@@ -45,7 +45,7 @@ export function TransferConfirm({
           </div>
           <div className="px-4 py-1.5 bg-[#e8e8e8] rounded-3xl justify-center items-center gap-2.5 flex">
             <div className="text-[#0e0e0e] text-sm font-medium font-['Roboto'] leading-[21px]">
-              {amount} ZEC
+              {amount} YEC
             </div>
           </div>
         </div>

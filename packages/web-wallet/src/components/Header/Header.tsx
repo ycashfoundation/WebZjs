@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { MetaMaskLogoPNG, MetaMaskSnapsLogoPNG, ZcashPNG } from '../../assets';
+import { MetaMaskLogoPNG, MetaMaskSnapsLogoPNG, LogoPNG } from '../../assets';
 
 const Header = (): React.JSX.Element => {
   const location = useLocation();
@@ -11,9 +11,9 @@ const Header = (): React.JSX.Element => {
       <Link to={'/'}>
         <div className="flex items-center">
           <img
-            src={ZcashPNG}
+            src={LogoPNG}
             className="w-[25px] h-[25px] mr-3"
-            alt="Zcash logo"
+            alt="Ycash logo"
           />
           <div className="w-full max-w-[200px]">
             {isHomePage ? (
@@ -35,7 +35,7 @@ const Header = (): React.JSX.Element => {
             href="https://chainsafe.github.io/WebZjs/"
             className="px-6 relative after:content-['|'] after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-[divide-dividerColor] hover:underline"
           >
-            ZCash Docs
+            WebZjs Docs
           </a>
           <a
             target="_blank"
