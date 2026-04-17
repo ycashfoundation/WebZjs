@@ -90,6 +90,49 @@ impl From<sapling::ProofGenerationKey> for ProofGenerationKey {
     }
 }
 
+#[wasm_bindgen]
+impl ProofGenerationKey {
+    /// Serialize the Sapling proof-generation key as the 64-byte concatenation
+    /// `ak || nsk`. Both halves are 32-byte canonical jubjub encodings.
+    ///
+    /// Used by the Ycash MetaMask snap to hand the proof-generation key back
+    /// to the web wallet so the dapp can run the PCZT Prover role locally
+    /// (the snap sandbox can't load the Sapling proving params).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(64);
+        out.extend_from_slice(&self.inner.ak.to_bytes());
+        out.extend_from_slice(&self.inner.nsk.to_bytes());
+        out
+    }
+
+    /// Reconstruct a `ProofGenerationKey` from the 64-byte `ak || nsk` layout
+    /// produced by [`Self::to_bytes`]. Uses sapling-crypto's `temporary-zcashd`
+    /// escape hatch to reconstruct the `SpendValidatingKey` — there is no
+    /// stable public constructor for it, and we accept the escape hatch name
+    /// because the bytes we're feeding in came from `to_bytes()` above, not
+    /// user input.
+    pub fn from_bytes(bytes: &[u8]) -> Result<ProofGenerationKey, Error> {
+        if bytes.len() != 64 {
+            return Err(Error::ProofGenKey(format!(
+                "ProofGenerationKey::from_bytes: expected 64 bytes, got {}",
+                bytes.len()
+            )));
+        }
+        let ak = sapling::keys::SpendValidatingKey::temporary_zcash_from_bytes(&bytes[0..32])
+            .ok_or_else(|| {
+                Error::ProofGenKey("ProofGenerationKey::from_bytes: invalid ak".to_string())
+            })?;
+        let nsk_bytes: [u8; 32] = bytes[32..64].try_into().expect("slice length is 32");
+        let nsk_opt: Option<jubjub::Fr> = jubjub::Fr::from_bytes(&nsk_bytes).into();
+        let nsk = nsk_opt.ok_or_else(|| {
+            Error::ProofGenKey("ProofGenerationKey::from_bytes: invalid nsk".to_string())
+        })?;
+        Ok(ProofGenerationKey {
+            inner: sapling::ProofGenerationKey { ak, nsk },
+        })
+    }
+}
+
 /// A Zcash spending key
 ///
 /// This is a wrapper around the `zcash_keys::keys::SpendingKey` type. It can be created from at least 32 bytes of seed entropy

@@ -3326,6 +3326,7 @@ dependencies = [
  "bip32",
  "getrandom 0.2.17",
  "js-sys",
+ "jubjub",
  "orchard",
  "pczt",
  "sapling-crypto",

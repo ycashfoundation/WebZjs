@@ -18,6 +18,8 @@ pub enum Error {
     InvalidSeedPhrase,
     #[error("Failed to derive transparent address from UFVK")]
     TransparentAddressDerivation,
+    #[error("Sapling ProofGenerationKey error: {0}")]
+    ProofGenKey(String),
 }
 
 impl From<Error> for JsValue {

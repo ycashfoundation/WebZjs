@@ -25,7 +25,10 @@ zcash_protocol.workspace = true
 bip0039.workspace = true
 zip32.workspace = true
 zcash_transparent.workspace = true
-sapling = { workspace = true }
+sapling = { workspace = true, features = ["temporary-zcashd"] }
+# Direct jubjub dep (same version sapling-crypto uses) to round-trip the
+# nsk scalar in ProofGenerationKey::to_bytes / from_bytes.
+jubjub = { version = "0.10", default-features = false, features = ["alloc"] }
 bip32.workspace = true
 pczt = { workspace = true, default-features = false, features = [
     "signer",
