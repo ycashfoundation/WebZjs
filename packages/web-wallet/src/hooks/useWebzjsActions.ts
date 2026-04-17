@@ -4,6 +4,7 @@ import { WebWallet } from '@chainsafe/webzjs-wallet';
 import { useWebZjsContext } from '../context/WebzjsContext';
 import { useSession } from '../context/SessionContext';
 import { MAINNET_LIGHTWALLETD_PROXY } from '../config/constants';
+import { useSigningBackend } from './signing/useSigningBackend';
 
 /**
  * Actions on the loaded WebWallet. Everything here assumes the wallet has
@@ -62,7 +63,8 @@ async function withRetry<T>(
 
 export function useWebZjsActions(): WebzjsActions {
   const { state, dispatch } = useWebZjsContext();
-  const { mnemonic, status: sessionStatus } = useSession();
+  const { status: sessionStatus } = useSession();
+  const signingBackend = useSigningBackend();
 
   const fullySyncedRef = useRef(state.summary?.fully_scanned_height);
   const chainHeightRef = useRef(state.chainHeight);
@@ -113,7 +115,7 @@ export function useWebZjsActions(): WebzjsActions {
   const setupAccount = useCallback(
     async (birthdayHeight?: number) => {
       if (!state.webWallet) return;
-      if (sessionStatus !== 'unlocked' || !mnemonic) {
+      if (sessionStatus !== 'unlocked' || !signingBackend) {
         throw new Error('Wallet must be unlocked to set up an account');
       }
 
@@ -134,13 +136,11 @@ export function useWebZjsActions(): WebzjsActions {
       // Fresh account: birthday defaults to the current chain tip so a
       // brand-new user doesn't scan the entire Ycash history.
       const birthday =
-        birthdayHeight ??
-        Number(await state.webWallet.get_latest_block());
+        birthdayHeight ?? Number(await state.webWallet.get_latest_block());
       await set('birthdayBlock', String(birthday));
-      const accountId = await state.webWallet.create_account(
+      const accountId = await signingBackend.importAccount(
+        state.webWallet,
         'account-0',
-        mnemonic,
-        0,
         birthday,
       );
       dispatch({ type: 'set-active-account', payload: accountId });
@@ -150,7 +150,7 @@ export function useWebZjsActions(): WebzjsActions {
     [
       state.webWallet,
       sessionStatus,
-      mnemonic,
+      signingBackend,
       dispatch,
       syncStateWithWallet,
       flushDbToStore,
@@ -234,7 +234,7 @@ export function useWebZjsActions(): WebzjsActions {
         });
         return;
       }
-      if (sessionStatus !== 'unlocked' || !mnemonic) {
+      if (sessionStatus !== 'unlocked' || !signingBackend) {
         dispatch({
           type: 'set-error',
           payload: new Error('Wallet must be unlocked for full resync'),
@@ -273,13 +273,12 @@ export function useWebZjsActions(): WebzjsActions {
         );
         const accountId = await withRetry(
           () =>
-            freshWallet.create_account(
+            signingBackend.importAccount(
+              freshWallet,
               'account-0',
-              mnemonic,
-              0,
-              birthdayBlock,
+              birthdayBlock ?? Number(await freshWallet.get_latest_block()),
             ),
-          { label: 'create_account', retries: 3, baseDelay: 2000 },
+          { label: 'importAccount', retries: 3, baseDelay: 2000 },
         );
 
         // Sync loop — each sync() call makes incremental progress. Keep
@@ -338,7 +337,7 @@ export function useWebZjsActions(): WebzjsActions {
         dispatch({ type: 'set-sync-in-progress', payload: false });
       }
     },
-    [state.syncInProgress, sessionStatus, mnemonic, dispatch],
+    [state.syncInProgress, sessionStatus, signingBackend, dispatch],
   );
 
   return {
