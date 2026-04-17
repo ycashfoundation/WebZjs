@@ -7,13 +7,10 @@ export const installDialog = async () => {
       type: 'alert',
       content: (
         <Box>
-          <Heading>Thank you for installing Zcash Shielded Wallet snap</Heading>
+          <Heading>Thank you for installing Ycash Shielded Wallet snap</Heading>
           <Text>
-            This snap utilizes Zcash Web Wallet. Visit Zcash Web Wallet at{' '}
-            <Link href="https://webzjs.chainsafe.dev/">
-              webzjs.chainsafe.dev
-            </Link>
-            .
+            This snap signs Ycash transactions for the Ycash Web Wallet at{' '}
+            <Link href="https://wallet.ycash.xyz/">wallet.ycash.xyz</Link>.
           </Text>
         </Box>
       ),

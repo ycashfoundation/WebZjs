@@ -1,5 +1,8 @@
-//NU5 (Network Upgrade 5) (Block 1,687,104, May 31, 2022)
-const NU5_ACTIVATION = 1687104;
+// Ycash forked from Zcash at block 570000 (see ycashd/src/chainparams.cpp).
+// Any wallet created in the Ycash namespace can only have received funds on
+// or after this height, so it is the floor we clamp the user-supplied
+// birthday block to.
+const YCASH_FORK_HEIGHT = 570000;
 
 export function setSyncBlockHeight(
   userInputCreationBlock: string | null,
@@ -16,10 +19,8 @@ export function setSyncBlockHeight(
   // Check if custom block is higher than latest block
   if (customBirthdayBlock > latestBlock) return latestBlock;
 
-  const latestAcceptableSyncBlock = NU5_ACTIVATION;
-
   //In case user entered older than acceptable block height
-  return customBirthdayBlock > latestAcceptableSyncBlock
+  return customBirthdayBlock > YCASH_FORK_HEIGHT
     ? customBirthdayBlock
-    : latestAcceptableSyncBlock;
+    : YCASH_FORK_HEIGHT;
 }

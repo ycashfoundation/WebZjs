@@ -18,13 +18,16 @@ type SetBirthdayBlockParams = { latestBlock: number };
 export async function setBirthdayBlock({
   latestBlock,
 }: SetBirthdayBlockParams): Promise<number | null> {
-  // Calculate approximate block heights for different time ranges
-  // Zcash produces ~576 blocks per day (1 block per 75 seconds)
+  // Calculate approximate block heights for different time ranges.
+  // Ycash produces ~576 blocks per day (1 block per 75 seconds).
+  // 570000 is the Ycash fork height (ycashd/src/chainparams.cpp) — no
+  // Ycash wallet could have received funds before that.
   const blocksPerDay = 576;
-  const oneMonthAgo = Math.max(latestBlock - blocksPerDay * 30, 1687104);
-  const sixMonthsAgo = Math.max(latestBlock - blocksPerDay * 180, 1687104);
-  const oneYearAgo = Math.max(latestBlock - blocksPerDay * 365, 1687104);
-  const twoYearsAgo = Math.max(latestBlock - blocksPerDay * 730, 1687104);
+  const YCASH_FORK_HEIGHT = 570000;
+  const oneMonthAgo = Math.max(latestBlock - blocksPerDay * 30, YCASH_FORK_HEIGHT);
+  const sixMonthsAgo = Math.max(latestBlock - blocksPerDay * 180, YCASH_FORK_HEIGHT);
+  const oneYearAgo = Math.max(latestBlock - blocksPerDay * 365, YCASH_FORK_HEIGHT);
+  const twoYearsAgo = Math.max(latestBlock - blocksPerDay * 730, YCASH_FORK_HEIGHT);
 
   const interfaceId = await snap.request({
     method: 'snap_createInterface',
@@ -55,7 +58,7 @@ export async function setBirthdayBlock({
               - 2+ years ago: ~{twoYearsAgo.toLocaleString()}
             </Text>
             <Text>
-              - Unknown/Full scan: 1687104 (NU5 activation)
+              - Unknown/Full scan: 570000 (Ycash fork height)
             </Text>
             <Divider />
             {!!latestBlock && (

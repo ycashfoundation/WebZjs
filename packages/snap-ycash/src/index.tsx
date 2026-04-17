@@ -10,11 +10,11 @@ import { setBirthdayBlock } from './rpc/setBirthdayBlock';
 import { getSnapState } from './rpc/getSnapState';
 import { SetBirthdayBlockParams, SignPcztParams, SnapState } from './types';
 import { setSnapState } from './rpc/setSnapState';
-import { signPczt } from './rpc/signPczt'
+import { signPczt } from './rpc/signPczt';
 
 import { assert, object, number, optional, string } from 'superstruct';
 import { getSeedFingerprint } from './rpc/getSeedFingerprint';
-import type { OnInstallHandler } from "@metamask/snaps-sdk";
+import type { OnInstallHandler } from '@metamask/snaps-sdk';
 import { installDialog } from './utils/dialogs';
 
 let wasm: InitOutput;
@@ -22,13 +22,13 @@ let wasm: InitOutput;
 /**
  * Handle incoming JSON-RPC requests, sent through `wallet_invokeSnap`.
  *
- *
- * invoked the snap.
- * @param args.request - A validated JSON-RPC request object.
- * @returns The ViewingKey
+ * @returns The result specific to the invoked method.
  * @throws If the request method is not valid for this snap.
  */
-export const onRpcRequest: OnRpcRequestHandler = async ({ request, origin }) => {
+export const onRpcRequest: OnRpcRequestHandler = async ({
+  request,
+  origin,
+}) => {
   if (!wasm) {
     wasm = initialiseWasm();
   }
@@ -37,24 +37,28 @@ export const onRpcRequest: OnRpcRequestHandler = async ({ request, origin }) => 
     case 'getViewingKey':
       return await getViewingKey(origin);
     case 'signPczt':
-      assert(request.params, object({
-        pcztHexTring: string(),
-        signDetails: object({
-          recipient: string(),
-          amount: string()
+      assert(
+        request.params,
+        object({
+          pcztHexString: string(),
+          signDetails: object({
+            recipient: string(),
+            amount: string(),
+          }),
         }),
-      }));
+      );
       return await signPczt(request.params as SignPcztParams, origin);
     case 'getSeedFingerprint':
       return await getSeedFingerprint();
     case 'setBirthdayBlock':
       assert(request.params, object({ latestBlock: optional(number()) }));
       return await setBirthdayBlock(request.params as SetBirthdayBlockParams);
-    case 'getSnapStete':
+    case 'getSnapState':
       return await getSnapState();
-    case 'setSnapStete':
+    case 'setSnapState': {
       const setSnapStateParams = request.params as unknown as SnapState;
       return await setSnapState(setSnapStateParams);
+    }
     default:
       throw new Error('Method not found.');
   }
@@ -71,7 +75,7 @@ export const onUserInput: OnUserInputHandler = async ({ id, event }) => {
             value: event.value,
           },
         });
-
+        break;
       default:
         break;
     }
@@ -79,7 +83,7 @@ export const onUserInput: OnUserInputHandler = async ({ id, event }) => {
 };
 
 export const onInstall: OnInstallHandler = async (args) => {
-  if (args.origin === 'https://webzjs.chainsafe.dev') return;
+  if (args.origin === 'https://wallet.ycash.xyz') return;
 
   await installDialog();
 };

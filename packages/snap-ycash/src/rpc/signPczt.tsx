@@ -6,26 +6,26 @@ import {
   Pczt,
 } from '@chainsafe/webzjs-keys';
 import { getSeed } from '../utils/getSeed';
-import { SignPcztParams } from 'src/types';
+import { SignPcztParams } from '../types';
 
-
-
-export async function signPczt({ pcztHexTring, signDetails }: SignPcztParams, origin: string): Promise<string> {
-
+export async function signPczt(
+  { pcztHexString, signDetails }: SignPcztParams,
+  origin: string,
+): Promise<string> {
   const result = await snap.request({
     method: 'snap_dialog',
     params: {
       type: 'confirmation',
       content: (
         <Box>
-          <Heading>Sign PCZT</Heading>
+          <Heading>Sign Ycash transaction</Heading>
           <Divider />
           <Text>Origin: {origin}</Text>
           <Text>Recipient: {signDetails.recipient}</Text>
-          <Text>Amount: {signDetails.amount}</Text>
+          <Text>Amount: {signDetails.amount} YEC</Text>
           <Divider />
           <Text>PCZT hex to sign</Text>
-          <Copyable value={pcztHexTring} />
+          <Copyable value={pcztHexString} />
         </Box>
       ),
     },
@@ -35,29 +35,22 @@ export async function signPczt({ pcztHexTring, signDetails }: SignPcztParams, or
     throw new Error('User rejected');
   }
 
+  if (!/^[0-9a-fA-F]+$/.test(pcztHexString)) {
+    throw new Error('pcztHexString must be valid hex');
+  }
+
   const seed = await getSeed();
 
-  // Generate the UnifiedSpendingKey and obtain the Viewing Key
+  // 'main' routes to YCASH_MAIN_NETWORK through webzjs-common's Network dispatch,
+  // so USK derivation uses Ycash mainnet parameters.
   const spendingKey = new UnifiedSpendingKey('main', seed, 0);
   const seedFp = new SeedFingerprint(seed);
 
-  if (!/^[0-9a-fA-F]+$/.test(pcztHexTring)) {
-    throw new Error('pcztHexTring must be valid hex');
-  }
-
-  const pcztBuffer = Buffer.from(pcztHexTring, 'hex');
-
-
-  const pcztUint8Array = new Uint8Array(pcztBuffer);
-
-  const pczt = Pczt.from_bytes(pcztUint8Array)
+  const pcztBytes = new Uint8Array(Buffer.from(pcztHexString, 'hex'));
+  const pczt = Pczt.from_bytes(pcztBytes);
 
   const pcztSigned = await pczt_sign('main', pczt, spendingKey, seedFp);
+  const pcztBytesSigned = pcztSigned.serialize();
 
-  const pcztUint8Signed = pcztSigned.serialize();
-
-  const pcztHexStringSigned = Buffer.from(pcztUint8Signed).toString('hex');
-
-
-  return pcztHexStringSigned;
+  return Buffer.from(pcztBytesSigned).toString('hex');
 }

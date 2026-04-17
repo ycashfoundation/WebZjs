@@ -3,7 +3,7 @@ import type { Json } from '@metamask/snaps-sdk';
 export type SetBirthdayBlockParams = { latestBlock: number };
 
 export type SignPcztParams = {
-  pcztHexTring: string;
+  pcztHexString: string;
   signDetails: {
     recipient: string;
     amount: string;
@@ -15,9 +15,9 @@ export type SignPcztParams = {
  * All fields are Json-compatible (number extends Json).
  */
 export type LastKnownBalance = {
-  shielded: number;     // sapling + orchard (in zats)
-  unshielded: number;   // transparent (in zats)
-  timestamp: number;    // When last updated (ms)
+  shielded: number;     // sapling zatoshis (Ycash has no Orchard)
+  unshielded: number;   // transparent zatoshis
+  timestamp: number;    // when last updated, ms since epoch
 };
 
 /**
