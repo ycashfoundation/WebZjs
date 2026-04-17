@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useWebZjsContext } from '../context/WebzjsContext';
-import { useMetaMaskContext } from '../context/MetamaskContext';
 
 type BalanceType = {
   /** Confirmed shielded balance (Sapling — Ycash has no Orchard pool) */
@@ -22,15 +21,10 @@ type BalanceType = {
   hasPending: boolean;
   loading: boolean;
   error: string | null;
-  /** True if this balance is from snap cache (during recovery) */
-  isCached: boolean;
-  /** Age of cached balance in milliseconds (only set if isCached is true) */
-  cacheAge: number | null;
 };
 
-const useBalance = () => {
+const useBalance = (): BalanceType => {
   const { state } = useWebZjsContext();
-  const { snapState } = useMetaMaskContext();
 
   const activeBalanceReport = useMemo(() => {
     return state.summary?.account_balances.find(
@@ -38,113 +32,47 @@ const useBalance = () => {
     );
   }, [state.activeAccount, state.summary?.account_balances]);
 
-  // Compute balances following ZIP 315:
-  // - totalBalance = confirmed + pending (what the user "has")
-  // - spendableBalance = confirmed only (what they can spend right now)
-  // Falls back to snap cache when wallet hasn't loaded yet (e.g. page refresh)
-  // Returns directly from useMemo — no useState/useEffect copy to avoid extra render cycle.
-  const balances = useMemo((): BalanceType => {
-    // Calculate live wallet balances if available
-    let confirmedShielded = 0;
-    let confirmedUnshielded = 0;
-    let livePendingChange = 0;
-    let livePendingSpendable = 0;
-    let liveSapling = 0;
-
-    if (activeBalanceReport) {
-      liveSapling = activeBalanceReport[1].sapling_balance || 0;
-      confirmedShielded = liveSapling;
-      confirmedUnshielded = activeBalanceReport[1].unshielded_balance || 0;
-      livePendingChange = activeBalanceReport[1].pending_change || 0;
-      livePendingSpendable = activeBalanceReport[1].pending_spendable || 0;
-    }
-
-    const confirmedTotal = confirmedShielded + confirmedUnshielded;
-    const pendingTotal = livePendingChange + livePendingSpendable;
-    // ZIP 315: total = confirmed + pending
-    const liveTotal = confirmedTotal + pendingTotal;
-
-    // Check if we have cached balance from snap state
-    const cached = snapState?.lastKnownBalance;
-    const cachedTotal = cached ? cached.shielded + cached.unshielded : 0;
-
-    // 1. Live data available with non-zero total — use live
-    if (activeBalanceReport && liveTotal > 0) {
+  // ZIP 315 semantics: totalBalance = confirmed + pending ("what the user has"),
+  // spendableBalance = confirmed only ("what can be spent right now").
+  return useMemo((): BalanceType => {
+    if (!activeBalanceReport) {
       return {
-        shieldedBalance: confirmedShielded,
-        unshieldedBalance: confirmedUnshielded,
-        totalBalance: liveTotal,
-        spendableBalance: confirmedTotal,
-        saplingBalance: liveSapling,
-        pendingChange: livePendingChange,
-        pendingSpendable: livePendingSpendable,
-        totalPending: pendingTotal,
-        hasPending: pendingTotal > 0,
-        loading: false,
-        error: null,
-        isCached: false,
-        cacheAge: null,
-      };
-    }
-
-    // 2. Live is zero but cache has values — show cache (recovery protection)
-    if (cached && cachedTotal > 0) {
-      const age = Date.now() - cached.timestamp;
-      return {
-        shieldedBalance: cached.shielded,
-        unshieldedBalance: cached.unshielded,
-        totalBalance: cachedTotal,
-        spendableBalance: cachedTotal, // cache is from last known state
+        shieldedBalance: 0,
+        unshieldedBalance: 0,
+        totalBalance: 0,
+        spendableBalance: 0,
         saplingBalance: 0,
-        pendingChange: livePendingChange,
-        pendingSpendable: livePendingSpendable,
-        totalPending: pendingTotal,
-        hasPending: pendingTotal > 0,
-        loading: false,
+        pendingChange: 0,
+        pendingSpendable: 0,
+        totalPending: 0,
+        hasPending: false,
+        loading: !state.webWallet,
         error: null,
-        isCached: true,
-        cacheAge: age,
       };
     }
 
-    // 3. Live exists but is zero, no cache — show live zeros
-    if (activeBalanceReport) {
-      return {
-        shieldedBalance: confirmedShielded,
-        unshieldedBalance: confirmedUnshielded,
-        totalBalance: liveTotal,
-        spendableBalance: confirmedTotal,
-        saplingBalance: liveSapling,
-        pendingChange: livePendingChange,
-        pendingSpendable: livePendingSpendable,
-        totalPending: pendingTotal,
-        hasPending: pendingTotal > 0,
-        loading: false,
-        error: null,
-        isCached: false,
-        cacheAge: null,
-      };
-    }
+    const saplingBalance = activeBalanceReport[1].sapling_balance || 0;
+    const unshieldedBalance = activeBalanceReport[1].unshielded_balance || 0;
+    const pendingChange = activeBalanceReport[1].pending_change || 0;
+    const pendingSpendable = activeBalanceReport[1].pending_spendable || 0;
 
-    // 4. No data at all — loading if wallet hasn't initialized yet
+    const confirmedTotal = saplingBalance + unshieldedBalance;
+    const totalPending = pendingChange + pendingSpendable;
+
     return {
-      shieldedBalance: 0,
-      unshieldedBalance: 0,
-      totalBalance: 0,
-      spendableBalance: 0,
-      saplingBalance: 0,
-      pendingChange: 0,
-      pendingSpendable: 0,
-      totalPending: 0,
-      hasPending: false,
-      loading: !state.webWallet,
+      shieldedBalance: saplingBalance,
+      unshieldedBalance,
+      totalBalance: confirmedTotal + totalPending,
+      spendableBalance: confirmedTotal,
+      saplingBalance,
+      pendingChange,
+      pendingSpendable,
+      totalPending,
+      hasPending: totalPending > 0,
+      loading: false,
       error: null,
-      isCached: false,
-      cacheAge: null,
     };
-  }, [activeBalanceReport, snapState?.lastKnownBalance, state.webWallet]);
-
-  return balances;
+  }, [activeBalanceReport, state.webWallet]);
 };
 
 export default useBalance;

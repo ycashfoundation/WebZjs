@@ -1,6 +1,7 @@
 import React from 'react';
 import cn from 'classnames';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useSession } from '../../context/SessionContext';
 
 import {
   ArrowReceiveSvg,
@@ -45,6 +46,14 @@ const navItems: NavItem[] = [
 ];
 
 function NavBar() {
+  const { lock } = useSession();
+  const navigate = useNavigate();
+
+  const handleLock = () => {
+    lock();
+    navigate('/unlock', { replace: true });
+  };
+
   return (
     <nav className="flex space-x-9 mb-3 justify-center self-center items-center align-middle">
       {navItems.map((item) => (
@@ -72,6 +81,13 @@ function NavBar() {
           )}
         </NavLink>
       ))}
+      <button
+        type="button"
+        onClick={handleLock}
+        className="text-sm text-[#0e0e0e] font-semibold leading-tight pb-3 hover:text-brand-orange ml-auto"
+      >
+        Lock
+      </button>
     </nav>
   );
 }

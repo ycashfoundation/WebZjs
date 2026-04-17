@@ -3,15 +3,23 @@ import { Outlet } from 'react-router-dom';
 import { RESCAN_INTERVAL } from './config/constants';
 import { useWebZjsActions } from './hooks';
 import Layout from './components/Layout/Layout';
-import { useMetaMaskContext } from './context/MetamaskContext';
+import { useSession } from './context/SessionContext';
 import { useWebZjsContext } from './context/WebzjsContext';
 
 function App() {
   const { triggerRescan } = useWebZjsActions();
-  const { installedSnap } = useMetaMaskContext();
+  const { status: sessionStatus } = useSession();
   const { state } = useWebZjsContext();
 
-  const interval = installedSnap && state.initialized && !state.syncInProgress ? RESCAN_INTERVAL : null;
+  // Only poll for new blocks when the session is unlocked AND the wallet has
+  // been initialized — a locked session has no active account to sync against.
+  const interval =
+    sessionStatus === 'unlocked' &&
+    state.initialized &&
+    state.activeAccount != null &&
+    !state.syncInProgress
+      ? RESCAN_INTERVAL
+      : null;
 
   useInterval(() => {
     triggerRescan();
@@ -20,10 +28,10 @@ function App() {
   return (
     <div className="flex flex-col min-h-screen">
       <div className="w-full bg-yellow-100 border border-yellow-300 text-yellow-900 px-4 py-3 rounded-b-xl text-sm md:text-base">
-        <strong>Attention</strong> — this is a Ycash rebrand of ChainSafe's WebZjs. Account
-        creation still goes through the Zcash WebZjs MetaMask Snap, which will produce incorrect
-        signatures on the Ycash chain; a dedicated browser signing backend is on the way. Use for
-        browsing and read-only sync only until that lands.
+        <strong>Ycash Web Wallet — beta.</strong> Seeds are generated and signed locally in this
+        browser, encrypted with a passphrase, and stored only in this browser's IndexedDB. Write
+        your seed phrase down when you create the wallet — clearing browser data destroys this
+        copy, and there is no server-side recovery.
       </div>
       <Layout>
         <Outlet />

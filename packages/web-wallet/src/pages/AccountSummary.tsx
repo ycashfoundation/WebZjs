@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { get } from 'idb-keyval';
 import { zatsToYec } from '../utils';
 import { CoinsSvg, ShieldDividedSvg, ShieldSvg } from '../assets';
 import useBalance from '../hooks/useBalance';
 import { usePendingTransactions } from '../hooks/usePendingTransactions';
 import { useWebZjsContext } from 'src/context/WebzjsContext';
 import { BlockHeightCard } from 'src/components/BlockHeightCard/BlockHeightCard';
-import { useMetaMaskContext } from 'src/context/MetamaskContext';
 import { useWebZjsActions } from '../hooks/useWebzjsActions';
 
 interface BalanceCard {
@@ -18,8 +18,18 @@ function AccountSummary() {
   const { totalBalance, spendableBalance, unshieldedBalance, shieldedBalance, hasPending } = useBalance();
   const { pendingTxs } = usePendingTransactions();
   const { state } = useWebZjsContext();
-  const { snapState } = useMetaMaskContext();
   const { fullResync } = useWebZjsActions();
+  const [birthdayBlock, setBirthdayBlock] = useState<string | undefined>();
+
+  useEffect(() => {
+    // The wallet's birthday is stamped into IndexedDB by `setupAccount` /
+    // `fullResync`. We surface it here as a UI breadcrumb so the user can see
+    // which block the wallet started syncing from.
+    (async () => {
+      const stored = (await get('birthdayBlock')) as string | undefined;
+      setBirthdayBlock(stored);
+    })();
+  }, []);
 
   const BalanceCards: BalanceCard[] = [
     {
@@ -93,7 +103,7 @@ function AccountSummary() {
       )}
       <BlockHeightCard
         state={state}
-        syncedFrom={snapState?.webWalletSyncStartBlock}
+        syncedFrom={birthdayBlock}
         onFullResync={fullResync}
       />
     </div>

@@ -1,103 +1,28 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { LogoYellowPNG, FormTransferSvg, MetaMaskLogoPNG } from '../assets';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWebZjsContext } from '../context/WebzjsContext';
-import { useMetaMaskContext } from '../context/MetamaskContext';
-import { useMetaMask, useWebZjsActions } from '../hooks';
+import { LogoYellowPNG, FormTransferSvg } from '../assets';
+import { useSession } from '../context/SessionContext';
 import Loader from '../components/Loader/Loader';
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
-  const { state, dispatch, initWallet } = useWebZjsContext();
-  const { getAccountData, connectWebZjsSnap, recoverWallet } = useWebZjsActions();
-  const { installedSnap } = useMetaMask();
-  const { isPendingRequest } = useMetaMaskContext();
-  const [showResetInstructions, setShowResetInstructions] = useState(false);
-  const [recovering, setRecovering] = useState(false);
-  const recoveryAttemptedRef = useRef(false);
-  const connectingRef = useRef(false);
+  const { status } = useSession();
 
-  const handleConnectButton: React.MouseEventHandler<
-    HTMLButtonElement
-  > = async (e) => {
-    e.preventDefault();
-    connectingRef.current = true;
-    try {
-      // Lazy-load WASM on first user interaction
-      await initWallet();
-      await connectWebZjsSnap();
-      navigate('/dashboard/account-summary');
-    } catch (err: any) {
-      // Handle user rejection gracefully (code 4001)
-      if (err?.code === 4001) {
-        console.log('User rejected MetaMask connection');
-        return;
-      }
-      // Other errors should be shown to user
-      console.error('Connection failed:', err);
-      dispatch({ type: 'set-error', payload: err instanceof Error ? err : new Error(String(err)) });
-    } finally {
-      connectingRef.current = false;
-    }
-  };
-
+  // Once the session probe resolves, route users into the right flow. We keep
+  // the Home page itself as a "no-vault" landing — first-run visitors see the
+  // Create/Import choice here rather than being immediately redirected.
   useEffect(() => {
-    if (state.loading) return;
-    if (!installedSnap) return;
+    if (status === 'locked') navigate('/unlock', { replace: true });
+    if (status === 'unlocked') navigate('/dashboard/account-summary', { replace: true });
+  }, [status, navigate]);
 
-    const homeReload = async () => {
-      // Case 1: Account exists - go to dashboard
-      if (state.activeAccount !== null && state.activeAccount !== undefined) {
-        try {
-          const accountData = await getAccountData();
-          if (accountData?.saplingAddress) {
-            navigate('/dashboard/account-summary');
-          } else {
-            dispatch({ type: 'set-error', payload: 'Sapling address not available for the active account' });
-            setShowResetInstructions(true);
-          }
-        } catch (err) {
-          dispatch({ type: 'set-error', payload: err instanceof Error ? err : new Error(String(err)) });
-          setShowResetInstructions(true);
-        }
-        return;
-      }
-
-      // Case 2: Wallet not initialized yet - initialize it first
-      if (!state.initialized && !connectingRef.current) {
-        try {
-          setRecovering(true);
-          await initWallet();
-          // After init completes, effect will re-run with updated state
-        } catch (err) {
-          console.error('Wallet initialization failed:', err);
-          dispatch({ type: 'set-error', payload: err instanceof Error ? err : new Error(String(err)) });
-          setShowResetInstructions(true);
-        } finally {
-          setRecovering(false);
-        }
-        return;
-      }
-
-      // Case 3: Wallet initialized but no account - attempt recovery (once only)
-      if (state.initialized && !recoveryAttemptedRef.current && !connectingRef.current) {
-        recoveryAttemptedRef.current = true;
-        try {
-          setRecovering(true);
-          await recoverWallet();
-          navigate('/dashboard/account-summary');
-        } catch (err) {
-          console.error('Auto-recovery failed:', err);
-          dispatch({ type: 'set-error', payload: err instanceof Error ? err : new Error(String(err)) });
-          setShowResetInstructions(true);
-        } finally {
-          setRecovering(false);
-        }
-      }
-    };
-
-    homeReload();
-  }, [state.loading, state.activeAccount, state.initialized, installedSnap, navigate, dispatch, getAccountData, recoverWallet, initWallet]);
+  if (status === 'unknown' || status === 'locked' || status === 'unlocked') {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader />
+      </div>
+    );
+  }
 
   return (
     <div className="home-page flex items-start md:items-center justify-center px-4 overflow-y-hidden">
@@ -107,58 +32,29 @@ const Home: React.FC = () => {
         </div>
         <div className="flex flex-col items-start space-y-8">
           <img src={LogoYellowPNG} className="w-10 h-10" alt="Ycash Logo" />
-          <h1 className="font-inter font-semibold text-[5rem] leading-[5rem] we">
+          <h1 className="font-inter font-semibold text-[5rem] leading-[5rem]">
             Ycash <br />
             Web Wallet
           </h1>
           <p className="font-inter">
-            Access the Ycash network from your web browser with the Ycash
-            MetaMask Snap
+            A browser-native Ycash wallet. Your seed phrase is encrypted with a
+            passphrase and stored only on this device — nothing is sent to a
+            server and no browser extension is required.
           </p>
-          {showResetInstructions && (
-            <div className="w-full space-y-2 bg-red-50 border border-red-200 text-red-800 px-4 py-4 rounded-xl">
-              <div>Error occurred while loading the wallet data, please reset the wallet</div>
-              <div>To reset manually:</div>
-              <ul className="list-disc pl-6 space-y-1">
-                <li>Open DevTools ➛ Application ➛ IndexedDB ➛ keyval-store ➛ Delete database(s)</li>
-                <li>Open Metamask ➛ ⋮ ➛ Snaps ➛ Ycash Shielded Wallet ➛ Remove Ycash Shielded Wallet ➛ Remove Snap</li>
-                <li>Refresh the page and start installation again</li>
-              </ul>
-              <details className="mt-2">
-                <summary className="cursor-pointer underline">Show error details</summary>
-                <div className="mt-2 whitespace-pre-wrap break-words text-sm text-red-700">
-                  {typeof state.error === 'string' ? state.error : (state.error ? state.error.toString() : 'No additional error details')}
-                </div>
-              </details>
-            </div>
-          )}
-          {isPendingRequest && (
-            <div className="w-full bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm">
-              <div className="font-medium">MetaMask request pending</div>
-              <div className="mt-1">
-                Check MetaMask for a pending approval request. If you switched between MetaMask versions (e.g., Flask to regular), refresh the page and try again.
-              </div>
-            </div>
-          )}
-          <button
-            disabled={state.loading || isPendingRequest || recovering}
-            onClick={handleConnectButton}
-            className={`flex items-center bg-button-black-gradient hover:bg-button-black-gradient-hover text-white px-6 py-3 rounded-[2rem] ${state.loading || isPendingRequest || recovering ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}
-          >
-            <span>{state.loading ? 'Wallet Initializing...' : recovering ? 'Recovering Wallet...' : isPendingRequest ? 'Waiting for MetaMask...' : 'Connect MetaMask Snap'}</span>
-            {(state.loading || isPendingRequest || recovering) && (
-              <div className="ml-3">
-                <Loader />
-              </div>
-            )}
-            <div className="ml-3">
-              <img
-                src={MetaMaskLogoPNG}
-                className="w-[22px] h-[20px]"
-                alt="MetaMask Logo"
-              />
-            </div>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => navigate('/create')}
+              className="flex items-center justify-center bg-button-black-gradient hover:bg-button-black-gradient-hover text-white px-6 py-3 rounded-[2rem]"
+            >
+              Create New Wallet
+            </button>
+            <button
+              onClick={() => navigate('/import')}
+              className="flex items-center justify-center bg-transparent text-black border border-black px-6 py-3 rounded-[2rem] hover:bg-neutral-50"
+            >
+              Import Seed Phrase
+            </button>
+          </div>
         </div>
       </div>
     </div>

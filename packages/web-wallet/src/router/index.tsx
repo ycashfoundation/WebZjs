@@ -2,6 +2,9 @@ import { createBrowserRouter } from 'react-router-dom';
 import App from '../App';
 import ProtectedRoute from '../components/ProtectedRoute/ProtectedRoute';
 import Home from '../pages/Home';
+import CreateWallet from '../pages/CreateWallet';
+import ImportWallet from '../pages/ImportWallet';
+import Unlock from '../pages/Unlock';
 import Dashboard from '../pages/Dashboard';
 import AccountSummary from '../pages/AccountSummary';
 import TransferBalance from '../pages/TransferBalance/TransferBalance';
@@ -18,6 +21,9 @@ const router = createBrowserRouter([
         index: true,
         element: <Home />,
       },
+      { path: 'create', element: <CreateWallet /> },
+      { path: 'import', element: <ImportWallet /> },
+      { path: 'unlock', element: <Unlock /> },
       {
         path: 'dashboard',
         element: (
