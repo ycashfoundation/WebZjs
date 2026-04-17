@@ -33,17 +33,17 @@ tokio_with_wasm = { version = "0.7.1", features = ["rt", "rt-multi-thread", "syn
 ## Zcash dependencies - Using ycashfoundation/librustzcash-nu61 fork, which forks
 ## ChainSafe's NU6.1 fork and adds Ycash consensus support (YcashMainNetwork,
 ## NetworkUpgrade::Ycash, Y-branch IDs).
-zcash_keys = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", features = ["transparent-inputs", "orchard", "sapling", "unstable"] }
-zcash_client_backend = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["sync", "lightwalletd-tonic", "orchard"] }
-zcash_client_memory = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", features = ["orchard", "transparent-inputs"] }
-zcash_primitives = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash" }
-zcash_transparent = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false }
-zcash_address = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash" }
-zcash_proofs = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["bundled-prover", "multicore"] }
-zip321 = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash" }
+zcash_keys = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", features = ["transparent-inputs", "orchard", "sapling", "unstable"] }
+zcash_client_backend = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", default-features = false, features = ["sync", "lightwalletd-tonic", "orchard"] }
+zcash_client_memory = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f" }
+zcash_transparent = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", default-features = false }
+zcash_address = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f" }
+zcash_proofs = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", default-features = false, features = ["bundled-prover", "multicore"] }
+zip321 = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f" }
 zip32 = { version = "0.2" }
-zcash_protocol = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false }
-pczt = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["orchard", "sapling", "transparent"] }
+zcash_protocol = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", default-features = false }
+pczt = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", default-features = false, features = ["orchard", "sapling", "transparent"] }
 sapling = { package = "sapling-crypto", version = "0.6", default-features = false }
 bip32 = { version = "=0.6.0-pre.1", default-features = false, features = ["alloc"] }
 ## gRPC Web dependencies
@@ -52,7 +52,7 @@ tonic = { version = "0.14", default-features = false }
 
 
 # Used in Native tests
-zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", branch = "feat/ycash", default-features = false, features = ["unstable", "orchard"] }
+zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "634e390f", default-features = false, features = ["unstable", "orchard"] }
 
 getrandom = { version = "0.2", features = ["js"] }
 thiserror = "1.0.63"
@@ -87,6 +87,13 @@ byte-unit = { version = "5.1.4", features = ["byte"] }
 # See: https://github.com/zcash/librustzcash/pull/1661
 # orchard = { git = "https://github.com/zcash/orchard.git", rev = "4fa6d3b549f8803016a309281404eab095d04de8" }
 # sapling = { package = "sapling-crypto", git = "https://github.com/zcash/sapling-crypto.git", rev = "3c2235747553da642fb142d1eeb9b1afa8391987" }
+
+# tonic-web-wasm-client 0.8.0 rejects empty server-streaming responses with
+# `grpc-status` in HTTP headers (trailers-only) as `MalformedResponse`. The
+# Ycash lightwalletd fork emits responses in exactly that shape when a
+# streaming RPC returns zero messages. The `feat/trailers-only` branch in the
+# ycashfoundation fork accepts the trailers-only encoding.
+tonic-web-wasm-client = { git = "https://github.com/ycashfoundation/tonic-web-wasm-client", rev = "82944c0" }
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(wasm_bindgen)', 'cfg(wasm_bindgen_unstable_test_coverage)'] }
