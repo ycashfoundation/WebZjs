@@ -22,7 +22,9 @@
     "endowment:lifecycle-hooks": {},
     "endowment:webassembly": {},
     "endowment:rpc": {
-      "allowedOrigins": ["https://wallet.ycash.xyz"]
+      "allowedOrigins": [
+        "https://wallet.ycash.xyz"
+      ]
     },
     "snap_getBip44Entropy": [
       {

@@ -37,9 +37,9 @@ const Home: React.FC = () => {
             Web Wallet
           </h1>
           <p className="font-inter">
-            A browser-native Ycash wallet. Your seed phrase is encrypted with a
-            passphrase and stored only on this device — nothing is sent to a
-            server and no browser extension is required.
+            A browser-native Ycash wallet. Keep the seed in this browser
+            (passphrase-encrypted in IndexedDB) or delegate signing to the
+            Ycash MetaMask Snap — whichever fits your threat model.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <button
@@ -55,6 +55,12 @@ const Home: React.FC = () => {
               Import Seed Phrase
             </button>
           </div>
+          <button
+            onClick={() => navigate('/connect-snap')}
+            className="text-sm underline text-neutral-600 hover:text-neutral-900"
+          >
+            Use MetaMask Snap instead →
+          </button>
         </div>
       </div>
     </div>

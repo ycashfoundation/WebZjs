@@ -271,12 +271,14 @@ export function useWebZjsActions(): WebzjsActions {
         console.info(
           `Full resync: Re-importing account with birthday ${birthdayBlock}`,
         );
+        const resolvedBirthday =
+          birthdayBlock ?? Number(await freshWallet.get_latest_block());
         const accountId = await withRetry(
           () =>
             signingBackend.importAccount(
               freshWallet,
               'account-0',
-              birthdayBlock ?? Number(await freshWallet.get_latest_block()),
+              resolvedBirthday,
             ),
           { label: 'importAccount', retries: 3, baseDelay: 2000 },
         );
