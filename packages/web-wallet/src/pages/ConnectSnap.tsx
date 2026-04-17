@@ -130,9 +130,8 @@ const ConnectSnap: React.FC = () => {
       </div>
 
       <div className="mt-8 text-xs text-neutral-500">
-        Note: Phase E3.1 only supports <em>creating</em> an account via the
-        snap and syncing the blockchain. Sending and shielding through the
-        snap land in E3.2 once the proof-generation-key export path ships.
+        Each shielded send triggers two MetaMask dialogs: one to authorize
+        Sapling proving, then a second to sign the final Ycash transaction.
       </div>
     </div>
   );

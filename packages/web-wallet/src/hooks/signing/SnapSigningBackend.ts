@@ -1,4 +1,9 @@
-import { WebWallet, SeedFingerprint } from '@chainsafe/webzjs-wallet';
+import {
+  WebWallet,
+  SeedFingerprint,
+  ProofGenerationKey,
+  Pczt,
+} from '@chainsafe/webzjs-wallet';
 import { SigningBackend } from './SigningBackend';
 
 /**
@@ -10,22 +15,38 @@ export type InvokeSnap = <T = unknown>(
   params?: Record<string, unknown>,
 ) => Promise<T>;
 
+function hexToBytes(hex: string): Uint8Array {
+  if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2 !== 0) {
+    throw new Error('Expected even-length hex string');
+  }
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let s = '';
+  for (const b of bytes) s += b.toString(16).padStart(2, '0');
+  return s;
+}
+
 /**
  * Signing backend backed by the Ycash MetaMask snap (`packages/snap-ycash`).
- * The seed lives entirely inside the snap sandbox — this class only knows
- * how to issue RPC calls across the snap boundary.
+ * The BIP39 seed lives entirely inside the snap sandbox.
  *
- * E3.1 scope: account import via UFVK + seed fingerprint (one round-trip).
- * Once the snap approves the two dialogs, the resulting account is a
- * "spending-authority via UFVK" account: the wallet can sync, scan, and
- * show balances without ever seeing the seed.
+ * PCZT v4 pipeline (Ycash never activated NU5, so every shielded send is v4):
  *
- * E3.2 will wire sendShielded / shieldAll through the PCZT pipeline:
- *   wallet.pczt_create → wallet.pczt_prove(pczt, pgk-from-snap)
- *     → snap.signPczt(pczt-hex) → wallet.pczt_send
- * The prover needs the Sapling proof-generation key; that requires a new
- * `getProofGenerationKey` snap RPC + `ProofGenerationKey::to_bytes/from_bytes`
- * in webzjs-keys, which is tracked separately.
+ *   1. wallet.pczt_create                                 (dapp, no key material)
+ *   2. snap.getProofGenerationKey        → pgk-hex        (one MetaMask dialog)
+ *   3. wallet.pczt_prove(pczt, pgk)                       (dapp, CPU-bound Groth16)
+ *   4. snap.signPczt(pcztHex)            → signed-pcztHex (one more MetaMask dialog)
+ *   5. wallet.pczt_send(pczt)                             (dapp, broadcasts)
+ *
+ * For v4 the Prover must run BEFORE the Signer because ZIP-243 sighash
+ * depends on the Sapling Groth16 proof bytes. This is opposite of the
+ * v5 convention and the only subtle ordering rule in this flow.
  */
 export class SnapSigningBackend implements SigningBackend {
   readonly label = 'snap';
@@ -49,10 +70,7 @@ export class SnapSigningBackend implements SigningBackend {
         `Snap returned an invalid seed fingerprint: ${fingerprintHex}`,
       );
     }
-    const fingerprintBytes = new Uint8Array(
-      fingerprintHex.match(/.{2}/g)!.map((h) => parseInt(h, 16)),
-    );
-    const fingerprint = SeedFingerprint.from_bytes(fingerprintBytes);
+    const fingerprint = SeedFingerprint.from_bytes(hexToBytes(fingerprintHex));
 
     return wallet.create_account_ufvk(
       accountName,
@@ -63,24 +81,77 @@ export class SnapSigningBackend implements SigningBackend {
     );
   }
 
-  async sendShielded(
-    _wallet: WebWallet,
-    _accountId: number,
-    _toAddress: string,
-    _amountZats: bigint,
-  ): Promise<Uint8Array> {
-    throw new Error(
-      'Snap-based shielded send is pending Phase E3.2. The snap can sign ' +
-        'PCZTs but proving requires a ProofGenerationKey export RPC that ' +
-        'is not yet implemented. Use the browser signing backend in the ' +
-        'meantime.',
-    );
+  /**
+   * Fetch the Sapling proof-generation key from the snap. The snap prompts
+   * the user before releasing it; the returned object carries ak ‖ nsk in a
+   * form the wasm Prover can consume.
+   */
+  private async fetchProofGenerationKey(): Promise<ProofGenerationKey> {
+    const pgkHex = await this.invokeSnap<string>('getProofGenerationKey');
+    if (!/^[0-9a-fA-F]{128}$/.test(pgkHex)) {
+      throw new Error(
+        `Snap returned an invalid proof-generation key (expected 64 bytes hex): ${pgkHex}`,
+      );
+    }
+    return ProofGenerationKey.from_bytes(hexToBytes(pgkHex));
   }
 
-  async shieldAll(_wallet: WebWallet, _accountId: number): Promise<void> {
-    throw new Error(
-      'Snap-based shield is pending Phase E3.2 (same PGK plumbing as ' +
-        'sendShielded). Use the browser signing backend for now.',
+  private async signPcztInSnap(
+    pczt: Pczt,
+    recipient: string,
+    amount: string,
+  ): Promise<Pczt> {
+    const pcztHex = bytesToHex(pczt.serialize());
+    const signedHex = await this.invokeSnap<string>('signPczt', {
+      pcztHexString: pcztHex,
+      signDetails: { recipient, amount },
+    });
+    if (!/^[0-9a-fA-F]+$/.test(signedHex)) {
+      throw new Error('Snap returned non-hex PCZT');
+    }
+    return Pczt.from_bytes(hexToBytes(signedHex));
+  }
+
+  async sendShielded(
+    wallet: WebWallet,
+    accountId: number,
+    toAddress: string,
+    amountZats: bigint,
+  ): Promise<Uint8Array> {
+    // 1. Create the unsigned, unproven PCZT from the active account.
+    const unsigned = await wallet.pczt_create(accountId, toAddress, amountZats);
+
+    // 2. Ask the snap for the Sapling PGK (user approval #1).
+    const pgk = await this.fetchProofGenerationKey();
+
+    // 3. Prove locally. pczt_prove injects the PGK into each non-dummy
+    //    spend, then runs Groth16 in a spawned worker.
+    const proven = await wallet.pczt_prove(unsigned, pgk);
+
+    // 4. Snap signs using its USK (user approval #2). For v4, sighash is
+    //    computed over the proofs we just inserted.
+    const amountYec = (Number(amountZats) / 1e8).toString();
+    const signed = await this.signPcztInSnap(proven, toAddress, amountYec);
+
+    // 5. Broadcast. send() returns void; we return an empty marker to
+    //    match the SigningBackend interface (the classic path returns the
+    //    32-byte txid bytes, but PCZT's pczt_send doesn't surface those).
+    await wallet.pczt_send(signed);
+    return new Uint8Array();
+  }
+
+  async shieldAll(wallet: WebWallet, accountId: number): Promise<void> {
+    // pczt_shield is the PCZT-shaped counterpart to wallet.shield(): it
+    // proposes "shield every transparent UTXO into Sapling" and returns
+    // the unsigned PCZT. From there the flow is identical to sendShielded.
+    const unsigned = await wallet.pczt_shield(accountId);
+    const pgk = await this.fetchProofGenerationKey();
+    const proven = await wallet.pczt_prove(unsigned, pgk);
+    const signed = await this.signPcztInSnap(
+      proven,
+      '(shield to Sapling)',
+      '(all transparent)',
     );
+    await wallet.pczt_send(signed);
   }
 }
