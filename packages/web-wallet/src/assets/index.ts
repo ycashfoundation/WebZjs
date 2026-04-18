@@ -2,11 +2,11 @@ import ChainsafePNG from './chainsafe.png';
 import FormTransferSvg from './form-transfer.svg';
 import MetaMaskLogoPNG from './metaMask-logo.png';
 import MetaMaskSnapsLogoPNG from './metamask-snaps-logo.png';
-// Logo PNGs are still the original Zcash assets at the time of the Ycash
-// rebrand — swap in Ycash-branded artwork when available. The generic names
-// let us replace the files without touching every consumer.
-import LogoPNG from './zcash.png';
-import LogoYellowPNG from './zcash-yellow.png';
+// Official Ycash brand assets (Ycash Foundation brand kit). `LogoPNG` and
+// `LogoYellowPNG` are kept as aliases for the same file for now so existing
+// consumers keep working without a rename sweep.
+import LogoPNG from './ycash-logo.png';
+import LogoYellowPNG from './ycash-logo.png';
 
 // Icons
 import ArrowReceiveSvg from './icons/arrow-receive.svg';

@@ -37,7 +37,7 @@ function NavBar() {
 
   return (
     <nav className="flex items-center gap-1 px-2 md:px-4 py-2 mb-8 border-b border-border">
-      <div className="flex items-center gap-1 overflow-x-auto">
+      <div className="flex items-center gap-1 flex-wrap">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
