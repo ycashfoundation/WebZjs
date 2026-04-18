@@ -621,7 +621,14 @@ impl WebWallet {
             account_id.into(),
             UnifiedAddressRequest::ALLOW_ALL,
         )? {
-            Ok(address.transparent().unwrap().encode(&self.inner.network))
+            address
+                .transparent()
+                .map(|t| t.encode(&self.inner.network))
+                .ok_or_else(|| {
+                    Error::Generic(
+                        "Account has no transparent component (Sapling-only UFVK)".to_string(),
+                    )
+                })
         } else {
             Err(Error::AccountNotFound(account_id))
         }

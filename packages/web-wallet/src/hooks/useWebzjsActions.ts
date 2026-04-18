@@ -76,11 +76,20 @@ export function useWebZjsActions(): WebzjsActions {
       if (state.activeAccount == null || !state.webWallet) return;
       const accountIndex = state.activeAccount;
       // Ycash never activated NU5, so Unified Addresses cannot be encoded on
-      // this network — fetch a Sapling-only shielded address instead.
-      const [saplingAddress, transparentAddress] = await Promise.all([
-        state.webWallet.get_current_address_sapling(accountIndex),
-        state.webWallet.get_current_address_transparent(accountIndex),
-      ]);
+      // this network — fetch the Sapling-only shielded address instead.
+      // Transparent is optional (the snap backend derives a Sapling-only
+      // UFVK), so surface the absence as an empty string instead of
+      // collapsing the whole fetch on rejection.
+      const saplingAddress =
+        await state.webWallet.get_current_address_sapling(accountIndex);
+      let transparentAddress = '';
+      try {
+        transparentAddress =
+          await state.webWallet.get_current_address_transparent(accountIndex);
+      } catch {
+        // No transparent component on this account — expected for snap-backed
+        // Sapling-only accounts.
+      }
       return { saplingAddress, transparentAddress };
     } catch (error) {
       dispatch({
