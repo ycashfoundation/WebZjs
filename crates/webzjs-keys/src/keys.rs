@@ -210,6 +210,24 @@ impl UnifiedSpendingKey {
         }
     }
 
+    /// Serialize the Sapling `ExtendedFullViewingKey` as its 169-byte ZIP-32
+    /// binary encoding (`depth ‖ parent_fvk_tag ‖ child_index ‖ chain_code ‖
+    /// fvk(ak‖nk‖ovk) ‖ dk`).
+    ///
+    /// This is the snap↔dapp wire format for handing a viewing key out of the
+    /// MetaMask sandbox on Ycash. Ycash never activated unified addresses —
+    /// librustzcash-ycash deliberately panics in `UnifiedFullViewingKey::encode`
+    /// for Ycash networks — so the bech32 ZIP-316 path is unavailable. The
+    /// dapp rebuilds an in-memory sapling-only UFVK from these bytes via
+    /// `UnifiedFullViewingKey::from_sapling_extended_full_viewing_key`.
+    pub fn to_sapling_extended_fvk_bytes(&self) -> Result<Vec<u8>, Error> {
+        let efvk = self.inner.sapling().to_extended_full_viewing_key();
+        let mut buf = Vec::with_capacity(169);
+        efvk.write(&mut buf)
+            .map_err(|e| Error::KeyDerivation(e.to_string()))?;
+        Ok(buf)
+    }
+
     /// Construct a UnifiedSpendingKey from a BIP39 seed phrase.
     ///
     /// # Arguments

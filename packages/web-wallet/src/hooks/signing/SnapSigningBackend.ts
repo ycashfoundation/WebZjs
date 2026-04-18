@@ -58,12 +58,19 @@ export class SnapSigningBackend implements SigningBackend {
     accountName: string,
     birthdayHeight: number,
   ): Promise<number> {
-    const [encodedUfvk, fingerprintHex] = await Promise.all([
+    // Ycash never activated unified addresses, so librustzcash-ycash panics
+    // in `UnifiedFullViewingKey::encode` for Ycash networks. The snap hands
+    // out the raw Sapling ExtendedFullViewingKey (169-byte ZIP-32 encoding)
+    // hex-encoded instead, and the wallet reconstructs a sapling-only
+    // in-memory UFVK from those bytes.
+    const [efvkHex, fingerprintHex] = await Promise.all([
       this.invokeSnap<string>('getViewingKey'),
       this.invokeSnap<string>('getSeedFingerprint'),
     ]);
-    if (typeof encodedUfvk !== 'string' || encodedUfvk.length === 0) {
-      throw new Error('Snap did not return a Unified Full Viewing Key');
+    if (!/^[0-9a-fA-F]{338}$/.test(efvkHex)) {
+      throw new Error(
+        `Snap returned an invalid Sapling EFVK (expected 169 bytes hex): ${efvkHex}`,
+      );
     }
     if (!/^[0-9a-fA-F]{64}$/.test(fingerprintHex)) {
       throw new Error(
@@ -72,9 +79,9 @@ export class SnapSigningBackend implements SigningBackend {
     }
     const fingerprint = SeedFingerprint.from_bytes(hexToBytes(fingerprintHex));
 
-    return wallet.create_account_ufvk(
+    return wallet.create_account_sapling_efvk(
       accountName,
-      encodedUfvk,
+      hexToBytes(efvkHex),
       fingerprint,
       0,
       birthdayHeight,

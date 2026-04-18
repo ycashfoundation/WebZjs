@@ -20,6 +20,8 @@ pub enum Error {
     TransparentAddressDerivation,
     #[error("Sapling ProofGenerationKey error: {0}")]
     ProofGenKey(String),
+    #[error("Key derivation error: {0}")]
+    KeyDerivation(String),
 }
 
 impl From<Error> for JsValue {

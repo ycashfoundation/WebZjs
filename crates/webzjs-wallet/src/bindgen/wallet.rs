@@ -231,6 +231,42 @@ impl WebWallet {
             .map(|id| *id)
     }
 
+    /// Register a spending account from a raw Sapling `ExtendedFullViewingKey`
+    /// (169-byte ZIP-32 encoding). This is the Ycash-compatible replacement
+    /// for `create_account_ufvk` — the ZIP-316 bech32 encoding/decoding path
+    /// panics on Ycash networks, so the snap hands us the Sapling EFVK bytes
+    /// directly and we wrap them into a sapling-only in-memory UFVK here.
+    ///
+    /// The snap side lives in `packages/snap-ycash/src/rpc/getViewingKey.tsx`;
+    /// the caller is `SnapSigningBackend.importAccount` in the web wallet.
+    pub async fn create_account_sapling_efvk(
+        &self,
+        account_name: &str,
+        sapling_efvk_bytes: Box<[u8]>,
+        seed_fingerprint: SeedFingerprint,
+        account_hd_index: u32,
+        birthday_height: Option<u32>,
+    ) -> Result<u32, Error> {
+        let efvk = ::sapling::zip32::ExtendedFullViewingKey::read(&sapling_efvk_bytes[..])
+            .map_err(|e| Error::Generic(format!("Sapling EFVK decode: {e}")))?;
+        let ufvk = UnifiedFullViewingKey::from_sapling_extended_full_viewing_key(efvk)
+            .map_err(|e| Error::Generic(format!("UFVK from Sapling EFVK: {e}")))?;
+        let derivation = Some(Zip32Derivation::new(
+            seed_fingerprint.into(),
+            zip32::AccountId::try_from(account_hd_index)?,
+        ));
+        self.inner
+            .import_ufvk(
+                account_name,
+                &ufvk,
+                AccountPurpose::Spending { derivation },
+                birthday_height,
+                None,
+            )
+            .await
+            .map(|id| *id)
+    }
+
     /// Add a new view-only account to the wallet by directly importing a Unified Full Viewing Key (UFVK)
     ///
     /// # Arguments
