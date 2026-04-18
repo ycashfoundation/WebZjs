@@ -1,41 +1,39 @@
 import QRCode from 'react-qr-code';
-import { EyeSlashSvg, EyeSvg } from '../../assets';
-import { useState } from 'react';
 import CopyButton from '../../components/CopyButton/CopyButton';
 
 interface QrCodeProps {
-  address: string; // Unified or transparent
+  address: string;
+}
+
+function truncateMiddle(s: string, left = 12, right = 10): string {
+  if (s.length <= left + right + 1) return s;
+  return `${s.slice(0, left)}…${s.slice(-right)}`;
 }
 
 function QrCode({ address }: QrCodeProps) {
-  const [exposeAddress, setExposeAddress] = useState(false);
+  if (!address) return null;
 
   return (
-    <>
-      <div className="p-[9.94px] rounded-[19.89px] border border-[#8c8c8c] flex-col justify-start items-center gap-[19.89px] flex">
-        {address && <QRCode value={address} />}
+    <div className="flex flex-col items-center gap-6 w-full max-w-[420px]">
+      <div className="p-4 rounded-lg bg-white border border-border">
+        <QRCode value={address} size={224} bgColor="#ffffff" fgColor="#000000" />
       </div>
-      <div className="flex px-6 py-3 justify-center items-start gap-3  max-w-[400px] bg-neutral-50 rounded-3xl border border-[#d9d9d9]">
-        <div className=" text-[#4f4f4f] text-base font-normal font-['Roboto'] leading-normal max-w-[288px]">
-          {exposeAddress ? (
-            <span className="break-words">{address}</span>
-          ) : (
-            <span className="text-ellipsis overflow-hidden block">
-              {address}
-            </span>
-          )}
-        </div>
-        <div
-          className="grow-0"
-          onClick={() => setExposeAddress(!exposeAddress)}
-        >
-          {exposeAddress ? <EyeSlashSvg /> : <EyeSvg />}
-        </div>
-        <div className="justify-start grow-0">
+
+      <div className="w-full flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+            Address
+          </span>
           <CopyButton textToCopy={address} />
         </div>
+        <div className="bg-surface border border-border rounded-md px-3 py-2.5 font-mono text-xs text-text-muted break-all leading-relaxed">
+          {address}
+        </div>
+        <span className="font-mono text-[10px] text-text-dim">
+          {truncateMiddle(address)} · {address.length} chars
+        </span>
       </div>
-    </>
+    </div>
   );
 }
 export default QrCode;

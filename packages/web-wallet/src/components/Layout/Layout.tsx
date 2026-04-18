@@ -5,9 +5,9 @@ import { Outlet } from 'react-router-dom';
 
 const Layout = ({ children }: React.PropsWithChildren): React.JSX.Element => {
   return (
-    <div className="container mx-auto flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen w-full">
       <Header />
-      <main className="grow flex justify-center py-3 self-stretch mt-[60px] w-full">
+      <main className="grow w-full max-w-6xl mx-auto px-6 md:px-10 py-8">
         {children ? children : <Outlet />}
       </main>
       <Footer />

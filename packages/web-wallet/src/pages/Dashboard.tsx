@@ -57,15 +57,16 @@ const Dashboard: React.FC = () => {
   return (
     <div className="w-full">
       <NavBar />
-      <div className="flex flex-col align-middle w-full mx-auto max-w-[1000px]">
-        {ready ? (
-          <Outlet />
-        ) : (
-          <div className="flex items-center justify-center py-32">
-            <Loader />
-          </div>
-        )}
-      </div>
+      {ready ? (
+        <Outlet />
+      ) : (
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <Loader />
+          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-dim">
+            Bootstrapping wallet
+          </span>
+        </div>
+      )}
     </div>
   );
 };

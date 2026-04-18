@@ -27,11 +27,15 @@ function App() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="w-full bg-yellow-100 border border-yellow-300 text-yellow-900 px-4 py-3 rounded-b-xl text-sm md:text-base">
-        <strong>Ycash Web Wallet — beta.</strong> Seeds are generated and signed locally in this
-        browser, encrypted with a passphrase, and stored only in this browser's IndexedDB. Write
-        your seed phrase down when you create the wallet — clearing browser data destroys this
-        copy, and there is no server-side recovery.
+      <div className="w-full bg-surface border-b border-border px-6 py-2.5">
+        <div className="flex items-center gap-3 text-xs text-text-muted">
+          <span className="pill pill-ycash shrink-0">Beta</span>
+          <span className="leading-relaxed">
+            Seeds are signed locally in this browser. Write your seed phrase
+            down when you create the wallet — clearing browser data destroys
+            your only copy.
+          </span>
+        </div>
       </div>
       <Layout>
         <Outlet />

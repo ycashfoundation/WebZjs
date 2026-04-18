@@ -1,11 +1,7 @@
 import { FC, useState } from 'react';
 import { WebZjsState } from 'src/context/WebzjsContext';
 import { YCASH_FORK_HEIGHT } from '../../config/constants';
-
-// Minimum birthday for a Ycash wallet. Technically Sapling activated at 419200
-// (pre-fork, shared with Zcash) and pre-fork Sapling notes are addressable on
-// the Ycash chain, but a fresh Ycash wallet should never need a birthday before
-// the 570_000 fork.
+import Button from '../Button/Button';
 
 export const BlockHeightCard: FC<{
   state: WebZjsState;
@@ -19,89 +15,73 @@ export const BlockHeightCard: FC<{
     setShowConfirm(false);
     const birthday = customBirthday ? parseInt(customBirthday, 10) : undefined;
     if (birthday && birthday < YCASH_FORK_HEIGHT) {
-      alert(`Birthday must be at least ${YCASH_FORK_HEIGHT} (Ycash fork height)`);
+      alert(
+        `Birthday must be at least ${YCASH_FORK_HEIGHT} (Ycash fork height)`,
+      );
       return;
     }
     onFullResync?.(birthday);
     setCustomBirthday('');
   };
 
+  const chainHeight = state.chainHeight ? String(state.chainHeight) : '—';
+  const syncedHeight = state.summary?.fully_scanned_height
+    ? String(state.summary.fully_scanned_height)
+    : '—';
+
+  const Row = ({ label, value }: { label: string; value: string }) => (
+    <div className="flex items-baseline justify-between gap-4 py-2.5 border-b border-border last:border-b-0">
+      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+        {label}
+      </span>
+      <span className="mono text-base text-text">{value}</span>
+    </div>
+  );
+
   return (
-    <div className="grow shrink min-w-[317px] basis-0 p-6 bg-white rounded-xl border border-[#afafaf] flex-col justify-start items-start gap-2 inline-flex">
-      {state.syncInProgress ? (
-        <div className="self-stretch flex items-center gap-2">
-          <svg
-            className="animate-spin h-4 w-4 text-[#595959]"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            ></circle>
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <span className="text-[#595959] text-sm font-semibold font-inter leading-[21px]">
-            Sync in progress...
+    <div className="card-surface p-6">
+      <div className="flex items-center justify-between mb-4">
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+          Sync status
+        </span>
+        {state.syncInProgress ? (
+          <span className="pill pill-info inline-flex items-center gap-1.5">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-info opacity-70 animate-ping"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-info"></span>
+            </span>
+            syncing
           </span>
-        </div>
-      ) : null}
-      <div className="self-stretch text-[#595959] text-sm font-semibold font-inter leading-[21px]">
-        Chain Height
+        ) : (
+          <span className="pill pill-accent">synced</span>
+        )}
       </div>
-      <div className="self-stretch justify-start items-center gap-2 inline-flex">
-        <div className="text-black text-2xl font-medium font-['Inter'] leading-9">
-          {state.chainHeight ? '' + state.chainHeight : '?'}
-        </div>
+
+      <div className="flex flex-col">
+        <Row label="Chain height" value={chainHeight} />
+        <Row label="Scanned to" value={syncedHeight} />
+        {syncedFrom && <Row label="Synced from" value={syncedFrom} />}
       </div>
-      <div className="self-stretch text-[#595959] text-sm font-semibold font-inter leading-[21px]">
-        Synced Height
-      </div>
-      <div className="self-stretch justify-start items-center gap-2 inline-flex">
-        <div className="text-black text-2xl font-medium font-['Inter'] leading-9">
-          {state.summary?.fully_scanned_height
-            ? state.summary?.fully_scanned_height
-            : '?'}
-        </div>
-      </div>
-      {syncedFrom && (
-        <>
-          <div className="self-stretch text-[#595959] text-sm font-semibold font-inter leading-[21px]">
-            Sync Start Block
-          </div>
-          <div className="self-stretch justify-start items-center gap-2 inline-flex">
-            <div className="text-black text-2xl font-medium font-['Inter'] leading-9">
-              {syncedFrom}
-            </div>
-          </div>
-        </>
-      )}
+
       {onFullResync && !state.syncInProgress && (
-        <div className="self-stretch mt-4 pt-4 border-t border-[#e0e0e0]">
+        <div className="mt-5 pt-4 border-t border-border">
           {!showConfirm ? (
             <button
+              type="button"
               onClick={() => setShowConfirm(true)}
-              className="text-[#595959] text-sm font-medium hover:text-black transition-colors cursor-pointer underline"
+              className="font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim hover:text-ycash transition-colors"
             >
-              Full Resync
+              Full resync →
             </button>
           ) : (
             <div className="flex flex-col gap-3">
-              <p className="text-[#595959] text-xs">
-                Clear cached data and resync. Enter a custom birthday block or leave empty to use stored birthday.
+              <p className="text-xs text-text-muted leading-relaxed">
+                Clear the local chain cache and rescan from a birthday block.
+                Leave the field blank to use the stored birthday.
               </p>
-              <div className="flex flex-col gap-1">
-                <label className="text-[#595959] text-xs">
-                  Birthday Block (min: {YCASH_FORK_HEIGHT})
+              <div className="flex flex-col gap-1.5">
+                <label className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+                  Birthday block · min {YCASH_FORK_HEIGHT}
                 </label>
                 <input
                   type="number"
@@ -109,25 +89,19 @@ export const BlockHeightCard: FC<{
                   onChange={(e) => setCustomBirthday(e.target.value)}
                   placeholder="e.g. 2674500"
                   min={YCASH_FORK_HEIGHT}
-                  className="px-2 py-1 border border-[#afafaf] rounded text-sm w-full bg-white text-black"
+                  className="bg-surface border border-border rounded-md px-3 py-2 text-text placeholder:text-text-dim font-mono text-sm focus:border-accent focus:outline-none"
                 />
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={handleResync}
-                  className="px-3 py-1 bg-[#f5a623] text-white text-sm font-medium rounded hover:bg-[#e09000] transition-colors"
-                >
-                  Confirm Resync
-                </button>
-                <button
+                <Button label="Confirm resync" onClick={handleResync} />
+                <Button
+                  label="Cancel"
+                  variant="ghost"
                   onClick={() => {
                     setShowConfirm(false);
                     setCustomBirthday('');
                   }}
-                  className="px-3 py-1 bg-[#e0e0e0] text-[#595959] text-sm font-medium rounded hover:bg-[#d0d0d0] transition-colors"
-                >
-                  Cancel
-                </button>
+                />
               </div>
             </div>
           )}

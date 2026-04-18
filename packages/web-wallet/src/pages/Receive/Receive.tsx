@@ -23,13 +23,10 @@ function Receive(): React.JSX.Element {
     transparentAddress: '',
   });
 
-  // Fetch addresses when account becomes available
   useEffect(() => {
-    // Don't try to fetch if no account yet
     if (state.activeAccount === null || state.activeAccount === undefined) {
       return;
     }
-
     const fetchData = async () => {
       const data = await getAccountData();
       if (data) {
@@ -42,50 +39,61 @@ function Receive(): React.JSX.Element {
     fetchData();
   }, [state.activeAccount, getAccountData]);
 
-  // Show loader if no account yet OR no addresses loaded yet
   const loading =
     state.activeAccount === null ||
     state.activeAccount === undefined ||
     !addresses.saplingAddress;
 
-  const tabs = {
-    [AddressType.SAPLING]: {
-      label: 'Shielded (Sapling)',
+  const tabs: { key: AddressType; label: string; hint: string }[] = [
+    {
+      key: AddressType.SAPLING,
+      label: 'Private (Sapling)',
+      hint: 'ys1… · default',
     },
-    [AddressType.TRANSPARENT]: {
-      label: 'Transparent',
+    {
+      key: AddressType.TRANSPARENT,
+      label: 'Public (Transparent)',
+      hint: 's1… · for shield-in flows',
     },
-  };
+  ];
+
+  const activeHint = tabs.find((t) => t.key === activeTab)?.hint;
+  const activeAddress =
+    activeTab === AddressType.SAPLING
+      ? addresses.saplingAddress
+      : addresses.transparentAddress;
 
   return (
-    <>
-      <PageHeading title="Receive" />
-      <div className="max-w-[1000px] p-9 bg-white rounded-3xl border border-[#afafaf] flex-col justify-start items-center gap-9 inline-flex">
+    <div className="w-full pb-16">
+      <PageHeading title="Receive" eyebrow="Your addresses" />
+      <div className="card-surface p-6 md:p-8">
         {loading ? (
-          <Loader />
+          <div className="py-20 flex justify-center">
+            <Loader />
+          </div>
         ) : (
           <>
-            <div className="self-stretch px-[75px] justify-center items-start gap-3 inline-flex">
-              {Object.keys(tabs).map((tab) => (
+            <div className="flex flex-wrap items-center gap-2 mb-6 pb-4 border-b border-border">
+              {tabs.map((tab) => (
                 <Tab
-                  key={tab}
-                  tabName={tab}
-                  label={tabs[tab as AddressType].label}
-                  isActive={activeTab === tab}
-                  onClick={() => setActiveTab(tab as AddressType)}
+                  key={tab.key}
+                  tabName={tab.key}
+                  label={tab.label}
+                  isActive={activeTab === tab.key}
+                  onClick={() => setActiveTab(tab.key)}
                 />
               ))}
+              <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+                {activeHint}
+              </span>
             </div>
-            {activeTab === AddressType.SAPLING && (
-              <QrCode address={addresses.saplingAddress} />
-            )}
-            {activeTab === AddressType.TRANSPARENT && (
-              <QrCode address={addresses.transparentAddress} />
-            )}
+            <div className="flex justify-center">
+              <QrCode address={activeAddress} />
+            </div>
           </>
         )}
       </div>
-    </>
+    </div>
   );
 }
 

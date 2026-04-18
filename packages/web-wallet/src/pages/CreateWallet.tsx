@@ -38,7 +38,8 @@ const CreateWallet: React.FC = () => {
   // to the unlock page rather than overwriting.
   useEffect(() => {
     if (status === 'locked') navigate('/unlock', { replace: true });
-    if (status === 'unlocked') navigate('/dashboard/account-summary', { replace: true });
+    if (status === 'unlocked')
+      navigate('/dashboard/account-summary', { replace: true });
   }, [status, navigate]);
 
   const words = mnemonic ? mnemonic.split(' ') : [];
@@ -66,41 +67,59 @@ const CreateWallet: React.FC = () => {
 
   if (!mnemonic) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-12 text-center">
+      <div className="max-w-2xl mx-auto px-4 py-16 text-center font-mono text-sm text-text-muted">
         Generating seed…
       </div>
     );
   }
 
+  const stepNum = step === 'backup' ? 1 : 2;
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12">
-      <h1 className="text-4xl font-semibold mb-2">Create a Ycash Wallet</h1>
-      <p className="text-neutral-600 mb-8">
-        Your seed phrase is the only way to recover this wallet. Write it down
-        somewhere safe. Anyone who sees these 24 words controls your funds.
+    <div className="max-w-2xl mx-auto px-6 py-12">
+      <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-dim mb-3">
+        Step {stepNum} of 2 · {step === 'backup' ? 'Back up your seed' : 'Set a passphrase'}
+      </div>
+      <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3">
+        Create a Ycash wallet
+      </h1>
+      <p className="text-text-muted mb-10 max-w-[52ch] leading-relaxed">
+        Your 24-word seed phrase is the only way to recover this wallet.
+        Anyone who has it controls your funds. Write it down somewhere you
+        trust — not a password manager, not a screenshot.
       </p>
 
       {step === 'backup' && (
         <>
-          <div className="grid grid-cols-3 gap-2 bg-neutral-50 border border-neutral-300 rounded-2xl p-6 mb-6 font-mono text-sm">
-            {words.map((w, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-neutral-400 w-6 text-right">{i + 1}.</span>
-                <span>{w}</span>
-              </div>
-            ))}
+          <div className="card-surface p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+                seed phrase · 24 words
+              </span>
+              <span className="pill pill-danger">keep private</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-5 gap-y-3 font-mono text-sm">
+              {words.map((w, i) => (
+                <div key={i} className="flex items-baseline gap-2.5">
+                  <span className="text-text-dim w-5 text-right tabular-nums">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="text-text">{w}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <label className="flex items-start gap-3 mb-6 cursor-pointer">
+          <label className="flex items-start gap-3 mb-8 cursor-pointer group">
             <input
               type="checkbox"
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
-              className="mt-1"
+              className="mt-1 accent-accent"
             />
-            <span className="text-sm text-neutral-700">
-              I have written these 24 words down and stored them somewhere I
-              control. Losing them means losing access to the wallet.
+            <span className="text-sm text-text-muted group-hover:text-text transition-colors">
+              I have written these 24 words down and stored them somewhere
+              I control. Losing them means losing access to the wallet.
             </span>
           </label>
 
@@ -114,18 +133,20 @@ const CreateWallet: React.FC = () => {
 
       {(step === 'passphrase' || step === 'creating') && (
         <>
-          <p className="text-neutral-700 mb-6">
-            Set a passphrase to encrypt the seed on this browser. You'll need
-            it every time you unlock the wallet.
+          <p className="text-text-muted mb-6 max-w-[52ch] leading-relaxed">
+            The passphrase encrypts your seed in this browser. You'll enter
+            it every time you unlock the wallet. It can't be recovered — if
+            you forget it, use the seed phrase above to import the wallet
+            again.
           </p>
 
-          <div className="flex flex-col gap-4 mb-6">
+          <div className="flex flex-col gap-3 mb-4">
             <input
               type="password"
               placeholder="Passphrase (8+ characters)"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
-              className="border border-neutral-300 rounded-xl px-4 py-3"
+              className="bg-card border border-border rounded-md px-4 py-3 text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
               autoFocus
             />
             <input
@@ -133,19 +154,27 @@ const CreateWallet: React.FC = () => {
               placeholder="Confirm passphrase"
               value={passphraseAgain}
               onChange={(e) => setPassphraseAgain(e.target.value)}
-              className="border border-neutral-300 rounded-xl px-4 py-3"
+              className="bg-card border border-border rounded-md px-4 py-3 text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
             />
           </div>
 
           {error && (
-            <div className="text-red-600 text-sm mb-4">{error}</div>
+            <div className="text-danger text-sm mb-4 font-mono">{error}</div>
           )}
 
-          <Button
-            label={step === 'creating' ? 'Encrypting…' : 'Create Wallet'}
-            disabled={step === 'creating'}
-            onClick={handleCommit}
-          />
+          <div className="flex gap-3">
+            <Button
+              label={step === 'creating' ? 'Encrypting…' : 'Create wallet'}
+              disabled={step === 'creating'}
+              onClick={handleCommit}
+            />
+            <Button
+              label="Back"
+              variant="ghost"
+              onClick={() => setStep('backup')}
+              disabled={step === 'creating'}
+            />
+          </div>
         </>
       )}
     </div>

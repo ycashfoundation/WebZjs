@@ -1,48 +1,18 @@
-import React from 'react';
 import cn from 'classnames';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useSession } from '../../context/SessionContext';
 
-import {
-  ArrowReceiveSvg,
-  ArrowTransferSvg,
-  SummarySvg,
-  ShieldSvg,
-  ClockSvg
-} from '../../assets';
-
 interface NavItem {
   to: string;
   label: string;
-  icon: React.JSX.Element;
 }
 
 const navItems: NavItem[] = [
-  {
-    to: 'account-summary',
-    label: 'Account Summary',
-    icon: <SummarySvg />,
-  },
-  {
-    to: 'transactions',
-    label: 'Transactions',
-    icon: <ClockSvg />,
-  },
-  {
-    to: 'transfer-balance',
-    label: 'Transfer Balance',
-    icon: <ArrowTransferSvg />,
-  },
-    {
-    to: 'shield-balance',
-    label: 'Shield Balance',
-    icon: <ShieldSvg />,
-  },
-  {
-    to: 'receive',
-    label: 'Receive',
-    icon: <ArrowReceiveSvg />,
-  }
+  { to: 'account-summary', label: 'Summary' },
+  { to: 'transactions', label: 'Transactions' },
+  { to: 'transfer-balance', label: 'Send' },
+  { to: 'shield-balance', label: 'Shield' },
+  { to: 'receive', label: 'Receive' },
 ];
 
 function NavBar() {
@@ -66,36 +36,36 @@ function NavBar() {
   };
 
   return (
-    <nav className="flex space-x-9 mb-3 justify-center self-center items-center align-middle">
-      {navItems.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) =>
-            cn('text-sm text-[#0e0e0e] font-semibold leading-tight pb-3', {
-              'text-black border-b border-orange-500': isActive,
-            })
-          }
-        >
-          {({ isActive }) => (
-            <span
-              className={cn(
-                'inline-flex items-center hover:text-brand-orange navbar-link',
-                { 'navbar-link-active': isActive },
-              )}
-            >
-              <span className="text-brand-grey10 text-sm  mr-2">
-                {item.icon}
-              </span>
-              {item.label}
-            </span>
-          )}
-        </NavLink>
-      ))}
+    <nav className="flex items-center gap-1 px-2 md:px-4 py-2 mb-8 border-b border-border">
+      <div className="flex items-center gap-1 overflow-x-auto">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              cn(
+                'relative px-4 py-2.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap',
+                isActive
+                  ? 'text-text bg-card'
+                  : 'text-text-muted hover:text-text hover:bg-surface',
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span>{item.label}</span>
+                {isActive && (
+                  <span className="absolute -bottom-[9px] left-3 right-3 h-[2px] bg-accent rounded-full" />
+                )}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
       <button
         type="button"
         onClick={handleClick}
-        className="text-sm text-[#0e0e0e] font-semibold leading-tight pb-3 hover:text-brand-orange ml-auto"
+        className="ml-auto font-mono text-[11px] uppercase tracking-[0.14em] text-text-dim hover:text-ycash transition-colors px-3 py-2"
       >
         {isSnap ? 'Disconnect' : 'Lock'}
       </button>

@@ -12,7 +12,7 @@ interface TransferConfirmProps {
 }
 
 export function TransferConfirm({
-  formData: { recipient, amount},
+  formData: { recipient, amount },
   nextStep,
   submitForm,
 }: TransferConfirmProps): React.JSX.Element {
@@ -26,39 +26,53 @@ export function TransferConfirm({
     }
   };
 
+  const Row = ({
+    label,
+    value,
+    mono = false,
+  }: {
+    label: string;
+    value: string;
+    mono?: boolean;
+  }) => (
+    <div className="flex flex-col gap-1.5 py-4 border-b border-border last:border-b-0">
+      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+        {label}
+      </span>
+      <span
+        className={
+          mono
+            ? 'mono text-sm text-text break-all leading-relaxed'
+            : 'text-text text-sm'
+        }
+      >
+        {value}
+      </span>
+    </div>
+  );
+
   return (
-    <div className="min-h-[460px] px-12 py-6 bg-white rounded-3xl border border-[#afafaf] flex-col justify-start items-center gap-6 inline-flex">
-      <div className="self-stretch h-[413px] flex-col justify-center items-center gap-3 flex">
-        <div className="self-stretch justify-start items-center gap-2 inline-flex">
-          <div className="grow shrink basis-0 text-black text-base font-medium font-['Roboto'] leading-normal">
-            To:
-          </div>
-          <div className="p-3 rounded-xl justify-start items-center gap-2 flex">
-            <div className="text-[#4f4f4f] text-base font-normal font-['Roboto'] break-all leading-normal">
-              {recipient}
-            </div>
-          </div>
-        </div>
-        <div className="self-stretch justify-start items-center gap-2 inline-flex">
-          <div className="grow shrink basis-0 text-black text-base font-normal font-['Roboto'] leading-normal">
-            Amount:
-          </div>
-          <div className="px-4 py-1.5 bg-[#e8e8e8] rounded-3xl justify-center items-center gap-2.5 flex">
-            <div className="text-[#0e0e0e] text-sm font-medium font-['Roboto'] leading-[21px]">
-              {amount} YEC
-            </div>
-          </div>
-        </div>
-        <div className="self-stretch pt-6 flex-col justify-center items-center gap-3 flex">
-          <div className="justify-start items-start inline-flex">
-          <Button
-              onClick={() => handleNextStep()}
-              label={'Complete transfer'}
-            />
-          </div>
-        </div>
+    <div className="card-surface p-6 md:p-8 flex flex-col gap-4">
+      <div className="flex items-center justify-between pb-4 border-b border-border">
+        <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-text-dim">
+          Review · step 2 of 2
+        </span>
+        <span className="pill pill-accent">ready to sign</span>
+      </div>
+      <div className="flex flex-col">
+        <Row label="Recipient" value={recipient} mono />
+        <Row label="Amount" value={`${amount} YEC`} />
+        <Row
+          label="Network fee"
+          value="ZIP-317 (calculated at signing time)"
+        />
+      </div>
+      <div className="flex items-center gap-3 pt-2">
+        <Button onClick={handleNextStep} label="Sign and send" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+          Irreversible once broadcast
+        </span>
       </div>
     </div>
   );
 }
-

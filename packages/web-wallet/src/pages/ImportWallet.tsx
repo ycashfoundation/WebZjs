@@ -22,7 +22,8 @@ const ImportWallet: React.FC = () => {
 
   useEffect(() => {
     if (status === 'locked') navigate('/unlock', { replace: true });
-    if (status === 'unlocked') navigate('/dashboard/account-summary', { replace: true });
+    if (status === 'unlocked')
+      navigate('/dashboard/account-summary', { replace: true });
   }, [status, navigate]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -35,7 +36,7 @@ const ImportWallet: React.FC = () => {
     try {
       SeedFingerprint.from_seed_phrase(normalized);
     } catch (err) {
-      setError('That does not look like a valid BIP39 seed phrase.');
+      setError('That does not look like a valid 24-word seed phrase.');
       return;
     }
     if (passphrase.length < 8) {
@@ -58,42 +59,62 @@ const ImportWallet: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12">
-      <h1 className="text-4xl font-semibold mb-2">Import a Ycash Wallet</h1>
-      <p className="text-neutral-600 mb-8">
-        Paste your 24-word BIP39 seed phrase. The seed will be encrypted on
-        this device with a passphrase you choose; nothing is sent to a server.
+    <div className="max-w-2xl mx-auto px-6 py-12">
+      <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-dim mb-3">
+        Import wallet
+      </div>
+      <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-3">
+        Restore from a seed phrase
+      </h1>
+      <p className="text-text-muted mb-8 max-w-[52ch] leading-relaxed">
+        Paste your 24-word seed phrase. It's encrypted on this device with a
+        passphrase you choose — nothing is sent to a server.
       </p>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <textarea
-          placeholder="word1 word2 word3 …"
-          value={mnemonic}
-          onChange={(e) => setMnemonic(e.target.value)}
-          className="border border-neutral-300 rounded-xl px-4 py-3 font-mono min-h-[120px]"
-          autoFocus
-          spellCheck={false}
-        />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div className="card-surface p-4">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim mb-2">
+            Seed phrase · 24 words
+          </div>
+          <textarea
+            placeholder="word1  word2  word3  …"
+            value={mnemonic}
+            onChange={(e) => setMnemonic(e.target.value)}
+            className="w-full bg-transparent font-mono text-sm text-text placeholder:text-text-dim min-h-[120px] resize-y focus:outline-none leading-relaxed"
+            autoFocus
+            spellCheck={false}
+          />
+        </div>
         <input
           type="password"
           placeholder="Passphrase (8+ characters)"
           value={passphrase}
           onChange={(e) => setPassphrase(e.target.value)}
-          className="border border-neutral-300 rounded-xl px-4 py-3"
+          className="bg-card border border-border rounded-md px-4 py-3 text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
         />
         <input
           type="password"
           placeholder="Confirm passphrase"
           value={passphraseAgain}
           onChange={(e) => setPassphraseAgain(e.target.value)}
-          className="border border-neutral-300 rounded-xl px-4 py-3"
+          className="bg-card border border-border rounded-md px-4 py-3 text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
         />
-        {error && <div className="text-red-600 text-sm">{error}</div>}
-        <Button
-          label={saving ? 'Encrypting…' : 'Import Wallet'}
-          disabled={saving}
-          onClick={() => handleSubmit()}
-          type="submit"
-        />
+        {error && (
+          <div className="text-danger text-sm font-mono">{error}</div>
+        )}
+        <div className="flex gap-3 mt-2">
+          <Button
+            label={saving ? 'Encrypting…' : 'Import wallet'}
+            disabled={saving}
+            onClick={() => handleSubmit()}
+            type="submit"
+          />
+          <Button
+            label="Back"
+            variant="ghost"
+            onClick={() => navigate('/')}
+            disabled={saving}
+          />
+        </div>
       </form>
     </div>
   );

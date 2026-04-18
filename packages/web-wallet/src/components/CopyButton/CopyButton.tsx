@@ -2,11 +2,15 @@ import React, { useState } from 'react';
 
 interface CopyButtonProps {
   textToCopy: string;
+  label?: string;
 }
 
-const HIDE_IN_SECONDS = 2000;
+const HIDE_IN_SECONDS = 1800;
 
-const CopyButton: React.FC<CopyButtonProps> = ({ textToCopy }) => {
+const CopyButton: React.FC<CopyButtonProps> = ({
+  textToCopy,
+  label = 'Copy',
+}) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -20,22 +24,13 @@ const CopyButton: React.FC<CopyButtonProps> = ({ textToCopy }) => {
   };
 
   return (
-    <div className="relative inline-block">
-      {copied && (
-        <div
-          className="absolute bottom-full left-1/2 transform -translate-x-1/2  text-white px-2 py-2 rounded-3xl mb-1 whitespace-nowrap text-sm
-      bg-neutral-800 justify-center items-center gap-2.5 inline-flex"
-        >
-          Address copied!
-        </div>
-      )}
-      <button
-        onClick={handleCopy}
-        className="text-[#e27625] text-base font-semibold leading-normal cursor-pointer"
-      >
-        copy
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="font-mono text-[11px] uppercase tracking-[0.15em] text-ycash hover:text-ycash-hover transition-colors px-2 py-1 rounded"
+    >
+      {copied ? 'Copied' : label}
+    </button>
   );
 };
 

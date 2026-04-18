@@ -26,50 +26,58 @@ export function TransferResult({
 
   switch (pcztTransferStatus) {
     case PcztTransferStatus.SEND_SUCCESSFUL:
-      return <TransactionStatusCard
-        headText={`${actionWord} complete`}
-        statusMessage={`Your transaction has been sent.`}
-        icon={<CheckSVG />}
-      >
-        <Button
-          onClick={() =>
-            navigate('/dashboard/account-summary', { replace: true })
-          }
-          label={`Back to Account Summary`}
-        />
-        {!isShieldTransaction && (
+      return (
+        <TransactionStatusCard
+          tone="accent"
+          headText={`${actionWord} sent`}
+          statusMessage="The transaction has been broadcast. It will appear in your history once a miner confirms it."
+          icon={<CheckSVG />}
+        >
           <Button
-            variant="secondary"
-            classNames="border-[#0e0e0e]"
-            onClick={() => resetForm()}
-            label={'Make Another Transfer'}
+            onClick={() =>
+              navigate('/dashboard/account-summary', { replace: true })
+            }
+            label="Back to summary"
           />
-        )}
-      </TransactionStatusCard>
+          {!isShieldTransaction && (
+            <Button
+              variant="secondary"
+              onClick={() => resetForm()}
+              label="New transfer"
+            />
+          )}
+        </TransactionStatusCard>
+      );
 
     case PcztTransferStatus.SEND_ERROR:
-      return <TransactionStatusCard
-        headText={`${actionWord} incomplete`}
-        statusMessage={errorMessage || 'Your transaction has not been sent.'}
-        icon={<WarningSVG />}
-      >
-
-        {!isShieldTransaction && (
+      return (
+        <TransactionStatusCard
+          tone="danger"
+          headText={`${actionWord} didn't go through`}
+          statusMessage={
+            errorMessage || 'The transaction was not broadcast. Try again.'
+          }
+          icon={<WarningSVG />}
+        >
+          {!isShieldTransaction && (
+            <Button onClick={() => resetForm()} label="Try again" />
+          )}
           <Button
-            variant="primary"
-            onClick={() => resetForm()}
-            label={'Try Again'}
+            variant="ghost"
+            onClick={() => navigate('/dashboard/account-summary')}
+            label="Back to summary"
           />
-        )}
-      </TransactionStatusCard>
+        </TransactionStatusCard>
+      );
 
     default:
-      return <TransactionStatusCard
-        headText={`${actionWord} in progress...`}
-        statusMessage={pcztTransferStatus}
-        icon={<Loader />}
-      />
+      return (
+        <TransactionStatusCard
+          tone="info"
+          headText={`${actionWord} in progress`}
+          statusMessage={pcztTransferStatus}
+          icon={<Loader />}
+        />
+      );
   }
-
 }
-

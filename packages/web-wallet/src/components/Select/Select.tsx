@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import cn from 'classnames';
 import { ChevronSVG } from '../../assets';
 import ErrorMessage from '../ErrorMessage/ErrorMessage';
 
@@ -51,14 +52,12 @@ const DropdownOption: React.FC<DropdownOptionProps> = ({
   suffixOptions,
 }) => (
   <div
-    className="px-6 mr-1 py-3 hover:bg-neutral-100 cursor-pointer flex justify-between items-center"
+    className="px-4 py-2.5 hover:bg-card-hover cursor-pointer flex justify-between items-center text-sm text-text"
     onClick={() => handleSelectOption(option)}
   >
-    <span className="text-[#0e0e0e] text-base font-normal font-['Roboto']">
-      {option.label}
-    </span>
+    <span>{option.label}</span>
     {suffixOptions && (
-      <div className="ml-2">
+      <div className="ml-2 font-mono text-xs text-text-muted">
         {suffixOptions.map(({ label, value }) => {
           if (label === option.value) return <div key={label}>{value}</div>;
         })}
@@ -96,37 +95,50 @@ const Select: React.FC<SelectProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative flex flex-col w-full gap-1 ${containerClassName}`}
+      className={cn('relative flex flex-col w-full gap-2', containerClassName)}
     >
       {label && (
         <label
-          className={`text-black text-base font-normal leading-normal ${labelClassName}`}
+          className={cn(
+            'font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim',
+            labelClassName,
+          )}
         >
           {label}
         </label>
       )}
       <div
-        className="relative h-full flex items-center bg-neutral-50 rounded-xl border border-[#afafaf] p-3 cursor-pointer"
+        className={cn(
+          'relative flex items-center bg-card border rounded-md px-4 py-3 cursor-pointer transition-colors',
+          isOpen ? 'border-accent' : 'border-border hover:border-border-strong',
+          error && 'border-danger/60',
+        )}
         onClick={() => setIsOpen(!isOpen)}
       >
-        <span className="grow bg-transparent focus:outline-hidden text-[#0e0e0e] text-base font-semibold font-inter">
+        <span className="grow text-sm text-text">
           {selected ? (
             selected.label
           ) : (
-            <div className="text-[#afafaf] text-base font-normal font-['Roboto'] leading-normal">
-              -Select-
-            </div>
+            <span className="text-text-dim">— Select —</span>
           )}
         </span>
 
-        <div className="ml-2 flex items-center justify-center">
-          {selectedSuffix && <div className="mr-1">{selectedSuffix}</div>}
-          <ChevronSVG className="w-4 h-4 text-[#a9aaab]" />
+        <div className="ml-2 flex items-center justify-center gap-2">
+          {selectedSuffix && <div>{selectedSuffix}</div>}
+          <ChevronSVG
+            className={cn(
+              'w-4 h-4 text-text-muted transition-transform',
+              isOpen && 'rotate-180',
+            )}
+          />
         </div>
 
         {isOpen && (
           <div
-            className={`absolute top-full left-0 right-0 bg-white border border-[#afafaf] rounded-xl overflow-hidden z-10 ${dropdownClassName}`}
+            className={cn(
+              'absolute top-full left-0 right-0 mt-1 bg-card border border-border-strong rounded-md overflow-hidden z-20 shadow-lg shadow-black/40',
+              dropdownClassName,
+            )}
           >
             {options.map((option) => (
               <DropdownOption

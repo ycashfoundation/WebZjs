@@ -13,7 +13,8 @@ const Unlock: React.FC = () => {
 
   useEffect(() => {
     if (status === 'no-vault') navigate('/', { replace: true });
-    if (status === 'unlocked') navigate('/dashboard/account-summary', { replace: true });
+    if (status === 'unlocked')
+      navigate('/dashboard/account-summary', { replace: true });
   }, [status, navigate]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -37,56 +38,65 @@ const Unlock: React.FC = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto px-4 py-16">
-      <h1 className="text-3xl font-semibold mb-2">Unlock Wallet</h1>
-      <p className="text-neutral-600 mb-6">
-        Enter the passphrase you set when creating the wallet.
+    <div className="max-w-md mx-auto px-6 py-20">
+      <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-dim mb-3">
+        Welcome back
+      </div>
+      <h1 className="text-4xl font-semibold tracking-tight mb-3">
+        Unlock wallet
+      </h1>
+      <p className="text-text-muted mb-8 leading-relaxed">
+        Enter the passphrase you set when you created this wallet.
       </p>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <input
           type="password"
           placeholder="Passphrase"
           value={passphrase}
           onChange={(e) => setPassphrase(e.target.value)}
-          className="border border-neutral-300 rounded-xl px-4 py-3"
+          className="bg-card border border-border rounded-md px-4 py-3 text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
           autoFocus
         />
-        {error && <div className="text-red-600 text-sm">{error}</div>}
-        <Button
-          label={submitting ? 'Unlocking…' : 'Unlock'}
-          disabled={submitting || !passphrase}
-          onClick={() => handleSubmit()}
-          type="submit"
-        />
+        {error && (
+          <div className="text-danger text-sm font-mono">{error}</div>
+        )}
+        <div className="mt-2">
+          <Button
+            label={submitting ? 'Unlocking…' : 'Unlock'}
+            disabled={submitting || !passphrase}
+            onClick={() => handleSubmit()}
+            type="submit"
+          />
+        </div>
       </form>
 
-      <div className="mt-10 border-t border-neutral-200 pt-6">
+      <div className="mt-14 pt-6 border-t border-border">
         {!confirmWipe ? (
           <button
             type="button"
             onClick={() => setConfirmWipe(true)}
-            className="text-sm text-neutral-500 underline hover:text-red-600"
+            className="font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim hover:text-danger transition-colors"
           >
-            Forgot passphrase / start over
+            Forgot passphrase · start over
           </button>
         ) : (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-red-700">
-              Wiping the vault will delete the encrypted seed from this
-              browser. If you don't have the 24-word phrase written down
-              elsewhere, you will permanently lose access to any funds at
-              that seed.
-            </p>
+          <div className="flex flex-col gap-4">
+            <div className="card-surface p-4 border-danger/40">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="pill pill-danger">danger</span>
+              </div>
+              <p className="text-sm text-text leading-relaxed">
+                Wiping the vault deletes the encrypted seed from this
+                browser. If you don't have the 24-word phrase stored
+                somewhere else, funds at that seed are unrecoverable.
+              </p>
+            </div>
             <div className="flex gap-3">
-              <Button
-                label="Wipe vault"
-                onClick={handleWipe}
-                variant="secondary"
-              />
+              <Button label="Wipe vault" onClick={handleWipe} variant="danger" />
               <Button
                 label="Cancel"
                 onClick={() => setConfirmWipe(false)}
-                variant="secondary"
+                variant="ghost"
               />
             </div>
           </div>

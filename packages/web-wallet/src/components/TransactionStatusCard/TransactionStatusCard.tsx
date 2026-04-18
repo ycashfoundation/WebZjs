@@ -1,35 +1,55 @@
 import React from 'react';
 
+type Tone = 'accent' | 'ycash' | 'danger' | 'info';
+
 interface TransactionStatusCardProps {
   icon: React.JSX.Element;
   headText: string;
   statusMessage?: string;
+  tone?: Tone;
   children?: React.ReactNode;
 }
+
+const toneToRingClass: Record<Tone, string> = {
+  accent: 'bg-accent-soft text-accent',
+  ycash: 'bg-ycash-soft text-ycash',
+  danger: 'bg-danger-soft text-danger',
+  info: 'bg-info-soft text-info',
+};
 
 function TransactionStatusCard({
   icon,
   headText,
   statusMessage,
+  tone = 'accent',
   ...props
 }: TransactionStatusCardProps): React.JSX.Element {
+  const ring = toneToRingClass[tone];
   return (
-    <div className="x-9 mt-[72px] justify-center items-start gap-2.5 inline-flex">
-      <div className="max-w-[620px] w-full px-12 py-9 bg-white rounded-3xl border border-[#afafaf] flex-col justify-start items-center inline-flex">
-        <div className="self-stretch  flex-col justify-start items-start gap-3 flex">
-          <div className="self-stretch mb-3 text-center text-black text-4xl font-medium font-['Inter'] leading-[43.20px]">
+    <div className="w-full flex justify-center mt-10">
+      <div className="card-surface max-w-[560px] w-full p-8 md:p-10 flex flex-col items-center gap-6">
+        <div
+          className={`w-16 h-16 rounded-full flex items-center justify-center ${ring}`}
+        >
+          <div className="w-8 h-8 flex items-center justify-center">
+            {icon}
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-text">
             {headText}
+          </h2>
+          {statusMessage && (
+            <p className="text-sm text-text-muted leading-relaxed max-w-[42ch]">
+              {statusMessage}
+            </p>
+          )}
+        </div>
+        {props.children && (
+          <div className="flex flex-wrap justify-center gap-3 pt-2">
+            {props.children}
           </div>
-          <div className="flex m-auto">{icon}</div>
-        </div>
-        <div className="self-stretch rounded-xl justify-start items-start gap-2 inline-flex mb-9">
-          <div className="grow shrink basis-0 text-center text-[#4f4f4f] text-base font-normal font-['Roboto'] leading-normal">
-            {statusMessage}
-          </div>
-        </div>
-        <div className="flex-col justify-center items-center gap-3 flex">
-          {props.children}
-        </div>
+        )}
       </div>
     </div>
   );

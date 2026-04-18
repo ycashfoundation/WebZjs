@@ -1,7 +1,10 @@
-import React from 'react';
 import { useTransactionHistory } from '../../hooks/useTransactionHistory';
 import { zatsToYec } from '../../utils';
-import type { TransactionHistoryEntry, TransactionType, TransactionStatus } from '../../types/transaction';
+import type {
+  TransactionHistoryEntry,
+  TransactionType,
+  TransactionStatus,
+} from '../../types/transaction';
 
 interface TransactionRowProps {
   transaction: TransactionHistoryEntry;
@@ -32,131 +35,138 @@ function getTypeLabel(type: TransactionType): string {
   }
 }
 
-function getStatusBadge(status: TransactionStatus): { text: string; className: string } {
+function getStatusPillClass(status: TransactionStatus): string {
   switch (status) {
     case 'Confirmed':
-      return { text: 'Confirmed', className: 'bg-green-100 text-green-800' };
+      return 'pill pill-accent';
     case 'Pending':
-      return { text: 'Pending', className: 'bg-yellow-100 text-yellow-800' };
+      return 'pill pill-ycash';
     case 'Expired':
-      return { text: 'Expired', className: 'bg-red-100 text-red-800' };
+      return 'pill pill-danger';
     default:
-      return { text: status, className: 'bg-gray-100 text-gray-800' };
+      return 'pill pill-muted';
   }
+}
+
+function truncateMiddle(s: string, left = 10, right = 8): string {
+  if (s.length <= left + right + 1) return s;
+  return `${s.slice(0, left)}…${s.slice(-right)}`;
 }
 
 function TransactionRow({ transaction }: TransactionRowProps) {
   const isPositive = transaction.value > 0;
-  const valueColor = isPositive ? 'text-green-600' : 'text-red-600';
+  const valueColor = isPositive ? 'text-accent' : 'text-danger';
   const valuePrefix = isPositive ? '+' : '';
-  const statusBadge = getStatusBadge(transaction.status);
 
   return (
-    <div className="p-4 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
-      <div className="flex justify-between items-start">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-medium text-gray-900">
+    <div className="card-surface p-4 md:p-5 hover:border-border-strong transition-colors">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex-1 min-w-0 flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-text font-medium">
               {getTypeLabel(transaction.tx_type)}
             </span>
-            <span className={`px-2 py-0.5 text-xs rounded-full ${statusBadge.className}`}>
-              {statusBadge.text}
+            <span className={getStatusPillClass(transaction.status)}>
+              {transaction.status}
             </span>
-            <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-              {transaction.pool}
-            </span>
+            <span className="pill pill-muted">{transaction.pool}</span>
           </div>
-          <div className="text-sm text-gray-500">
+          <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-text-dim">
             {formatTimestamp(transaction.timestamp)}
           </div>
           {transaction.memo && (
-            <div className="mt-2 text-sm text-gray-600 bg-gray-50 rounded p-2 break-words">
+            <div className="text-sm text-text-muted bg-surface border border-border rounded-md px-3 py-2 break-words mt-1">
               {transaction.memo}
             </div>
           )}
         </div>
-        <div className="text-right">
-          <div className={`font-semibold ${valueColor}`}>
-            {valuePrefix}{zatsToYec(Math.abs(transaction.value))} YEC
+        <div className="text-right flex flex-col items-end gap-1">
+          <div className={`mono text-lg font-semibold ${valueColor}`}>
+            {valuePrefix}
+            {zatsToYec(Math.abs(transaction.value))} YEC
           </div>
           {transaction.confirmations > 0 && (
-            <div className="text-xs text-gray-500">
-              {transaction.confirmations} confirmation{transaction.confirmations !== 1 ? 's' : ''}
+            <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-text-dim">
+              {transaction.confirmations} conf
+              {transaction.confirmations !== 1 ? 's' : ''}
             </div>
           )}
         </div>
       </div>
-      <div className="mt-2 text-xs text-gray-400 font-mono truncate" title={transaction.txid}>
-        {transaction.txid}
+      <div
+        className="mt-3 pt-3 border-t border-border font-mono text-[11px] text-text-dim truncate"
+        title={transaction.txid}
+      >
+        {truncateMiddle(transaction.txid, 16, 12)}
       </div>
     </div>
   );
 }
 
 function TransactionHistory() {
-  const {
-    transactions,
-    loading,
-    error,
-    totalCount,
-    hasMore,
-    loadMore,
-    refresh,
-  } = useTransactionHistory({ pageSize: 20 });
+  const { transactions, loading, error, totalCount, hasMore, loadMore, refresh } =
+    useTransactionHistory({ pageSize: 20 });
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-        Error loading transaction history: {error}
+      <div className="card-surface p-4 border-danger/40">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="pill pill-danger">error</span>
+        </div>
+        <p className="text-sm text-text-muted font-mono break-words">
+          {error}
+        </p>
       </div>
     );
   }
 
   return (
     <div className="w-full">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">
-          Transaction History
-          {totalCount > 0 && (
-            <span className="ml-2 text-sm font-normal text-gray-500">
-              ({totalCount} total)
-            </span>
-          )}
-        </h2>
+      <div className="flex items-center justify-between mb-4">
+        <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+          {totalCount > 0
+            ? `${totalCount} total · newest first`
+            : 'No transactions yet'}
+        </div>
         <button
           onClick={refresh}
           disabled={loading}
-          className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim hover:text-ycash transition-colors disabled:opacity-40"
         >
-          {loading ? 'Loading...' : 'Refresh'}
+          {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
 
       {transactions.length === 0 && !loading ? (
-        <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-lg">
-          No transactions found. Sync your wallet to see transaction history.
+        <div className="card-surface p-10 text-center">
+          <p className="text-text-muted text-sm">
+            No transactions found for this account.
+          </p>
+          <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim mt-2">
+            Let the wallet finish syncing, or wait for your first send/receive.
+          </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {transactions.map((tx) => (
             <TransactionRow key={tx.txid} transaction={tx} />
           ))}
         </div>
       )}
 
-      {loading && (
-        <div className="p-4 text-center text-gray-500">
-          Loading transactions...
+      {loading && transactions.length > 0 && (
+        <div className="py-4 text-center font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim">
+          Loading more…
         </div>
       )}
 
       {hasMore && !loading && (
-        <div className="mt-4 text-center">
+        <div className="mt-6 text-center">
           <button
             onClick={loadMore}
-            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
+            className="font-mono text-[11px] uppercase tracking-[0.15em] text-text-muted hover:text-ycash transition-colors border border-border-strong hover:border-ycash rounded-md px-5 py-2.5"
           >
-            Load More
+            Load more →
           </button>
         </div>
       )}

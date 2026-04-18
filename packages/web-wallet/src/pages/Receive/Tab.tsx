@@ -1,5 +1,4 @@
 import React from 'react';
-import { CircleDashedSvg, CircleSvg } from '../../assets';
 import cn from 'classnames';
 
 interface TabProps {
@@ -11,21 +10,21 @@ interface TabProps {
 
 const Tab: React.FC<TabProps> = ({ tabName, label, isActive, onClick }) => {
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onClick(tabName)}
       className={cn(
-        'px-4 py-2 justify-center items-center gap-1.5 flex rounded-3xl cursor-pointer',
-        {
-          'bg-[#e8e8e8] text-black font-semibold': isActive,
-          'bg-transparent text-[#afafaf]': !isActive,
-        },
+        'relative px-4 py-2 text-sm font-medium rounded-md transition-colors cursor-pointer',
+        isActive
+          ? 'text-text bg-card'
+          : 'text-text-muted hover:text-text hover:bg-surface',
       )}
     >
-      <div className="justify-start items-center gap-1 flex">
-        {isActive ? <CircleSvg /> : <CircleDashedSvg />}
-        <div className="text-center">{label}</div>
-      </div>
-    </div>
+      {label}
+      {isActive && (
+        <span className="absolute -bottom-[1px] left-3 right-3 h-[2px] bg-accent rounded-full" />
+      )}
+    </button>
   );
 };
 

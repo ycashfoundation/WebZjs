@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { LogoYellowPNG } from '../../assets';
 import PageHeading from '../../components/PageHeading/PageHeading';
 import useBalance from '../../hooks/useBalance';
 import { zatsToYec } from '../../utils';
@@ -39,87 +38,86 @@ export function ShieldBalance(): React.JSX.Element {
     fetchData();
   }, [getAccountData]);
 
-
   const handleShieldBalance = () => {
     setShieldStatus(ShieldStatus.SHIELDING);
-    handlePcztShieldTransaction(1, addresses.saplingAddress, unshieldedBalance.toString());
-  }
+    handlePcztShieldTransaction(
+      1,
+      addresses.saplingAddress,
+      unshieldedBalance.toString(),
+    );
+  };
 
-  const isMinimalShieldAmount = useMemo(()=>{
+  const isMinimalShieldAmount = useMemo(() => {
     // Need at least 0.001 YEC + fee buffer (0.0015 YEC total minimum)
-    // This accounts for the transaction fee which is deducted from the balance
-    const MINIMUM_SHIELD_AMOUNT = 100000; // 0.001 YEC
-    const FEE_BUFFER = 50000; // 0.0005 YEC conservative fee estimate
-    return unshieldedBalance > (MINIMUM_SHIELD_AMOUNT + FEE_BUFFER);
-  },[unshieldedBalance])
+    const MINIMUM_SHIELD_AMOUNT = 100000;
+    const FEE_BUFFER = 50000;
+    return unshieldedBalance > MINIMUM_SHIELD_AMOUNT + FEE_BUFFER;
+  }, [unshieldedBalance]);
 
   return (
-    <div className="flex flex-col w-full">
-      <PageHeading title="Shield Balance">
-        <div className="flex items-center gap-2.5">
-          <span className="text-black text-base font-normal font-inter leading-tight">
-            Available unshielded balance:
+    <div className="w-full pb-16">
+      <PageHeading title="Shield balance" eyebrow="Move transparent → private">
+        <div className="card-surface px-4 py-2 flex items-center gap-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-dim">
+            Transparent balance
           </span>
-          <div className="px-4 py-2 bg-[#e8e8e8] rounded-3xl flex items-center gap-2.5">
-            <img
-              src={LogoYellowPNG}
-              alt="Ycash"
-              className="w-5 h-5"
-            />
-            <span className="text-[#434343] text-base font-semibold font-inter leading-tight">
+          <span className="mono text-sm text-text">
+            {zatsToYec(unshieldedBalance)} YEC
+          </span>
+        </div>
+      </PageHeading>
+
+      {shieldStatus === ShieldStatus.DEFAULT && (
+        <div className="card-surface p-6 md:p-8 flex flex-col gap-4">
+          <div className="pb-4 border-b border-border flex items-center justify-between">
+            <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-text-dim">
+              Shield all
+            </span>
+            <span className="pill pill-accent">sapling</span>
+          </div>
+
+          <div className="flex flex-col gap-1.5 py-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+              Destination (your Sapling address)
+            </span>
+            <span className="mono text-sm text-text break-all leading-relaxed">
+              {addresses.saplingAddress || '—'}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between py-2 border-t border-border">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+              Amount
+            </span>
+            <span className="mono text-lg text-ycash">
               {zatsToYec(unshieldedBalance)} YEC
             </span>
           </div>
-        </div>
-      </PageHeading>
-      {shieldStatus === ShieldStatus.DEFAULT && (
-        <div className="min-h-[460px] px-12 py-6 bg-white rounded-3xl border border-[#afafaf] flex-col justify-start items-center gap-6 inline-flex">
-          <div className="self-stretch h-[413px] flex-col justify-center items-center gap-3 flex">
-            <div className="self-stretch justify-start items-center gap-2 inline-flex">
-              <div className="grow shrink basis-0 text-black text-base font-medium font-['Roboto'] leading-normal">
-                To:
-              </div>
-              <div className="p-3 rounded-xl justify-start items-center gap-2 flex">
-                <div className="text-[#4f4f4f] text-base font-normal font-['Roboto'] break-all leading-normal">
-                  {addresses.saplingAddress}
-                </div>
-              </div>
-            </div>
-            <div className="self-stretch justify-start items-center gap-2 inline-flex">
-              <div className="grow shrink basis-0 text-black text-base font-normal font-['Roboto'] leading-normal">
-                Amount:
-              </div>
-              <div className="px-4 py-1.5 bg-[#e8e8e8] rounded-3xl justify-center items-center gap-2.5 flex">
-                <div className="text-[#0e0e0e] text-sm font-medium font-['Roboto'] leading-[21px]">
-                  {zatsToYec(unshieldedBalance)} YEC
-                </div>
-              </div>
-            </div>
-            <div className="self-stretch pt-6 flex-col justify-center items-center gap-3 flex">
-              <div className="flex flex-col items-center justify-center">
-                <Button
-                  onClick={handleShieldBalance}
-                  label={'Shield balance'}
-                  disabled={!isMinimalShieldAmount}
-                />
-                {!isMinimalShieldAmount && (
-                  <div className="text-red-500 text-sm mt-2">
-                    Minimum balance required: 0.0015 YEC (includes transaction fees). Your balance: {zatsToYec(unshieldedBalance)} YEC
-                  </div>
-                )}
-              </div>
-            </div>
+
+          <div className="flex items-center gap-3 pt-2">
+            <Button
+              onClick={handleShieldBalance}
+              label="Shield balance"
+              disabled={!isMinimalShieldAmount}
+            />
+            {!isMinimalShieldAmount && (
+              <span className="font-mono text-[11px] text-danger leading-relaxed">
+                Need ≥ 0.0015 YEC transparent balance (covers the fee). You
+                have {zatsToYec(unshieldedBalance)} YEC.
+              </span>
+            )}
           </div>
         </div>
       )}
+
       {shieldStatus === ShieldStatus.SHIELDING && (
         <TransferResult
           pcztTransferStatus={pcztTransferStatus}
-          resetForm={() => { }}
-          isShieldTransaction={true}
+          resetForm={() => {
+            setShieldStatus(ShieldStatus.DEFAULT);
+          }}
+          isShieldTransaction
         />
       )}
-
     </div>
   );
 }

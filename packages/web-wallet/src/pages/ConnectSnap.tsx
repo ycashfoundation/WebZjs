@@ -28,7 +28,8 @@ const ConnectSnap: React.FC = () => {
   // Already unlocked? Bounce to dashboard — snap backend commits are idempotent
   // but we don't want to render the onboarding screen twice.
   useEffect(() => {
-    if (status === 'unlocked') navigate('/dashboard/account-summary', { replace: true });
+    if (status === 'unlocked')
+      navigate('/dashboard/account-summary', { replace: true });
   }, [status, navigate]);
 
   const handleInstallAndConnect = async () => {
@@ -75,23 +76,31 @@ const ConnectSnap: React.FC = () => {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-16">
-      <h1 className="text-3xl font-semibold mb-2">Connect MetaMask Snap</h1>
-      <p className="text-neutral-600 mb-6">
-        The Ycash MetaMask Snap keeps your seed inside the MetaMask sandbox.
-        Your browser never sees the seed phrase; you approve every signing
-        operation in MetaMask.
+    <div className="max-w-xl mx-auto px-6 py-16">
+      <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-dim mb-3">
+        MetaMask signing
+      </div>
+      <h1 className="text-4xl font-semibold tracking-tight mb-3">
+        Connect the Ycash Snap
+      </h1>
+      <p className="text-text-muted mb-8 leading-relaxed">
+        The Ycash MetaMask Snap keeps your seed inside MetaMask's sandbox.
+        This page never sees the seed phrase — you approve each signature in
+        the MetaMask window.
       </p>
 
       {!provider && (
-        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-          <p>
+        <div className="card-surface p-4 mb-6 border-ycash/30">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="pill pill-ycash">required</span>
+          </div>
+          <p className="text-sm text-text-muted">
             MetaMask not detected. Install the{' '}
             <a
               href="https://docs.metamask.io/snaps/get-started/install-flask/"
               target="_blank"
               rel="noreferrer"
-              className="underline"
+              className="text-ycash underline underline-offset-4 hover:text-ycash-hover"
             >
               MetaMask Flask
             </a>{' '}
@@ -101,14 +110,17 @@ const ConnectSnap: React.FC = () => {
       )}
 
       {provider && !snapsDetected && (
-        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-          <p>
+        <div className="card-surface p-4 mb-6 border-ycash/30">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="pill pill-ycash">upgrade</span>
+          </div>
+          <p className="text-sm text-text-muted">
             Your MetaMask build doesn't support Snaps yet. Install{' '}
             <a
               href="https://docs.metamask.io/snaps/get-started/install-flask/"
               target="_blank"
               rel="noreferrer"
-              className="underline"
+              className="text-ycash underline underline-offset-4 hover:text-ycash-hover"
             >
               MetaMask Flask
             </a>
@@ -118,32 +130,39 @@ const ConnectSnap: React.FC = () => {
       )}
 
       {installedSnap && (
-        <div className="mb-6 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm">
-          <p>Ycash Snap is installed. Click Connect to finish onboarding.</p>
+        <div className="card-surface p-4 mb-6 border-accent/30">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="pill pill-accent">installed</span>
+          </div>
+          <p className="text-sm text-text-muted">
+            The Ycash Snap is ready. Click Connect to finish onboarding.
+          </p>
         </div>
       )}
 
-      <div className="mb-6 rounded-xl border border-neutral-200 p-4 text-sm">
-        <label className="flex items-start gap-2 cursor-pointer">
+      <div className="card-surface p-5 mb-6">
+        <label className="flex items-start gap-3 cursor-pointer group">
           <input
             type="checkbox"
             checked={recoverOlder}
             onChange={(e) => setRecoverOlder(e.target.checked)}
-            className="mt-1"
+            className="mt-1 accent-accent"
           />
-          <span>
-            <span className="font-medium">Recover older wallet?</span>
-            <span className="block text-neutral-600 text-xs mt-1">
-              By default, the snap starts syncing from the current chain tip.
-              Enable this if you've connected this seed before and want to
-              recover earlier shielded notes.
+          <span className="flex-1">
+            <span className="text-sm font-medium text-text">
+              Recover an older wallet?
+            </span>
+            <span className="block text-text-muted text-xs mt-1 leading-relaxed">
+              By default the snap syncs from the current chain tip. Enable
+              this if you've connected this seed before and want to see
+              earlier transactions.
             </span>
           </span>
         </label>
         {recoverOlder && (
-          <div className="mt-3 flex flex-col gap-1">
-            <label className="text-neutral-600 text-xs">
-              Birthday block (min: {YCASH_FORK_HEIGHT})
+          <div className="mt-4 pt-4 border-t border-border flex flex-col gap-1.5">
+            <label className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+              Birthday block · min {YCASH_FORK_HEIGHT}
             </label>
             <input
               type="number"
@@ -151,39 +170,39 @@ const ConnectSnap: React.FC = () => {
               onChange={(e) => setBirthdayInput(e.target.value)}
               placeholder="e.g. 2859770"
               min={YCASH_FORK_HEIGHT}
-              className="px-2 py-1 border border-neutral-300 rounded text-sm w-full bg-white text-black"
+              className="bg-surface border border-border rounded-md px-3 py-2 text-text placeholder:text-text-dim font-mono text-sm focus:border-accent focus:outline-none"
             />
           </div>
         )}
       </div>
 
-      {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
+      {error && (
+        <div className="text-danger text-sm font-mono mb-4">{error}</div>
+      )}
 
-      <Button
-        label={
-          busy
-            ? 'Connecting…'
-            : installedSnap
-              ? 'Connect'
-              : 'Install Ycash Snap'
-        }
-        onClick={handleInstallAndConnect}
-        disabled={busy || !snapsDetected}
-      />
-
-      <div className="mt-10 border-t border-neutral-200 pt-6">
-        <button
-          type="button"
+      <div className="flex gap-3">
+        <Button
+          label={
+            busy
+              ? 'Connecting…'
+              : installedSnap
+                ? 'Connect'
+                : 'Install Ycash Snap'
+          }
+          onClick={handleInstallAndConnect}
+          disabled={busy || !snapsDetected}
+        />
+        <Button
+          label="Back"
+          variant="ghost"
           onClick={() => navigate('/', { replace: true })}
-          className="text-sm text-neutral-500 underline hover:text-neutral-800"
-        >
-          Back
-        </button>
+          disabled={busy}
+        />
       </div>
 
-      <div className="mt-8 text-xs text-neutral-500">
-        Each shielded send triggers two MetaMask dialogs: one to authorize
-        Sapling proving, then a second to sign the final Ycash transaction.
+      <div className="mt-12 pt-6 border-t border-border font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim leading-loose">
+        Sending shielded YEC triggers two MetaMask prompts:
+        one to generate the privacy proof, then one to sign the transaction.
       </div>
     </div>
   );
