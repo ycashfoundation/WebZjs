@@ -310,10 +310,14 @@ where
     ) -> Result<Proposal<StandardFeeRule, NoteRef>, Error> {
         let input_selector = GreedyInputSelector::new();
 
+        // Ycash never activated NU5, so the account's UFVK has no Orchard
+        // component and Orchard change outputs can't be built. Ask the
+        // change strategy for Sapling change on every path — matches
+        // `propose_shielding` below.
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedProtocol::Sapling,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)
@@ -533,41 +537,32 @@ where
     pub async fn pczt_shield(&self, account_id: AccountId) -> Result<Pczt, Error> {
         tracing::info!("pczt_shield: Starting for account {:?}", account_id);
 
-        // Ensure wallet is synced to latest block before creating transaction
-        // This prevents anchor mismatch errors where the commitment tree is out of sync
-        let mut client = self.client.clone();
-        let chain_tip: u32 = client
-            .get_latest_block(service::ChainSpec::default())
-            .await?
-            .into_inner()
-            .height
-            .try_into()
-            .expect("block heights must fit into u32");
-
-        let wallet_height = self.db.read().await.chain_height()?;
-        if let Some(wallet_height) = wallet_height {
-            let wallet_height_u32: u32 = wallet_height.into();
-            if chain_tip.saturating_sub(wallet_height_u32) > 10 {
-                tracing::warn!(
-                    "Wallet not fully synced: wallet={} < chain_tip={}. Syncing now...",
-                    wallet_height_u32,
-                    chain_tip
-                );
-                // Trigger sync before proceeding to ensure valid anchors
-                drop(client); // Release client before sync
-                self.sync().await?;
-                tracing::info!("pczt_shield: Sync completed, proceeding with transaction creation");
-            }
-        } else {
+        // Always sync before shielding. Unlike the shielded-spend paths, where
+        // skipping sync-at-tip is safe because shielded notes are already in
+        // the DB, transparent UTXO discovery requires an explicit
+        // `refresh_utxos` poll against lightwalletd — and that poll only
+        // happens inside `sync::run`. Skipping sync when the wallet is
+        // already at tip means the lightwalletd view of "UTXOs for my
+        // transparent receivers" is never refreshed, so a freshly-received
+        // UTXO won't be visible to `get_transparent_balances` and the
+        // subsequent `propose_shielding` fails with `InsufficientFunds`.
+        // At tip, `sync()` is cheap — one `refresh_utxos` call and an empty
+        // scan range.
+        if self.db.read().await.chain_height()?.is_none() {
             return Err(Error::Generic(
                 "Wallet has not been synced yet. Please sync before shielding.".to_string(),
             ));
         }
+        self.sync().await?;
+        tracing::info!("pczt_shield: Sync completed, proceeding with transaction creation");
 
+        // Ycash has no active Orchard pool; shielded destination must be
+        // Sapling so `create_pczt_from_proposal` doesn't try to build an
+        // Orchard change output that the UFVK has no key material for.
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedProtocol::Sapling,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)
@@ -691,11 +686,14 @@ where
             ));
         }
 
-        // Create the PCZT.
+        // Create the PCZT. Ycash has no active Orchard pool, so the change
+        // preference must be Sapling — otherwise `create_pczt_from_proposal`
+        // would try to build an Orchard change output that the Sapling-only
+        // UFVK can't serve.
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedProtocol::Sapling,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)
