@@ -593,10 +593,36 @@ impl WebWallet {
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
     ) -> Result<Pczt, Error> {
-        self.inner
-            .pczt_prove(pczt.into(), sapling_proof_gen_key.map(Into::into))
-            .await
-            .map(Into::into)
+        // Groth16 + halo2 proving uses rayon's par_iter under the hood,
+        // which blocks via `Atomics.wait`. That API is forbidden on the
+        // browser main thread, so proving MUST run inside a web worker —
+        // the same pattern `sync()` uses. Without this dispatch, pczt_prove
+        // hangs forever and the RuntimeError surfaces only after the user
+        // force-reloads.
+        assert!(!thread::is_web_worker_thread());
+        let inner = self.inner.clone();
+        let pczt_inner: ::pczt::Pczt = pczt.into();
+        let pgk_inner: Option<::sapling::ProofGenerationKey> =
+            sapling_proof_gen_key.map(Into::into);
+        let prove_handler = thread::Builder::new()
+            .name("pczt_prove".to_string())
+            .spawn_async(move || async move {
+                assert!(thread::is_web_worker_thread());
+                inner
+                    .pczt_prove(pczt_inner, pgk_inner)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .unwrap_throw()
+            .join_async();
+        match prove_handler.await {
+            Ok(Ok(proven)) => Ok(proven.into()),
+            Ok(Err(msg)) => Err(Error::PcztProve(msg)),
+            Err(panic) => Err(Error::PcztProve(format!(
+                "prover thread panicked: {:?}",
+                panic
+            ))),
+        }
     }
 
     pub async fn pczt_send(&self, pczt: Pczt) -> Result<(), Error> {

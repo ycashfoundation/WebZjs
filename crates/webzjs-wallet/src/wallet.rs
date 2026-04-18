@@ -14,6 +14,7 @@ use crate::BlockRange;
 use webzjs_common::Network;
 
 use pczt::roles::combiner::Combiner;
+use pczt::roles::io_finalizer::IoFinalizer;
 use pczt::roles::prover::Prover;
 
 use pczt::roles::updater::Updater;
@@ -799,6 +800,14 @@ where
             .create_sapling_proofs(&prover, &prover)
             .map_err(|e| Error::PcztProve(format!("Failed to create Sapling proofs: {:?}", e)))?
             .finish();
+
+        // Ycash PCZTs are v4, so ZIP-243 sighash commits to the Groth16 proof
+        // bytes we just inserted. Our librustzcash-ycash fork deliberately
+        // defers IoFinalize out of `create_pczt_from_proposal` for that
+        // reason — run it here now that proofs are present.
+        let pczt = IoFinalizer::new(pczt)
+            .finalize_io()
+            .map_err(|e| Error::PcztProve(format!("IoFinalize failed: {:?}", e)))?;
         Ok(pczt)
     }
 
