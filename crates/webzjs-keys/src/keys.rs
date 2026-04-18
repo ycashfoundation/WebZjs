@@ -228,6 +228,19 @@ impl UnifiedSpendingKey {
         Ok(buf)
     }
 
+    /// Serialize the transparent account-level `AccountPubKey` as 65 bytes:
+    /// the 32-byte BIP32 chain code followed by the 33-byte compressed secp256k1
+    /// public key (`AccountPubKey::serialize` layout).
+    ///
+    /// Paired with `to_sapling_extended_fvk_bytes`, this is the second half of
+    /// the snap↔dapp wire format when the dapp needs both sides of the UFVK —
+    /// the dapp then calls `UnifiedFullViewingKey::from_sapling_and_transparent`
+    /// to rebuild the full in-memory UFVK, so the wallet can derive transparent
+    /// receive addresses and the classic `pczt_shield` / shieldAll flows work.
+    pub fn to_transparent_account_pubkey_bytes(&self) -> Vec<u8> {
+        self.inner.transparent().to_account_pubkey().serialize()
+    }
+
     /// Construct a UnifiedSpendingKey from a BIP39 seed phrase.
     ///
     /// # Arguments

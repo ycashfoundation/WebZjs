@@ -58,6 +58,7 @@ zcash_client_backend = { workspace = true, default-features = false, features = 
 ] }
 zcash_client_memory = { workspace = true, features = ["orchard", "transparent-inputs"] }
 zcash_primitives = { workspace = true }
+zcash_transparent = { workspace = true }
 zcash_address = { workspace = true }
 zcash_protocol = { workspace = true, default-features = false }
 zcash_proofs = { workspace = true, default-features = false, features = ["bundled-prover", "multicore"] }

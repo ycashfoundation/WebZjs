@@ -267,6 +267,59 @@ impl WebWallet {
             .map(|id| *id)
     }
 
+    /// Register a spending account from a Sapling `ExtendedFullViewingKey`
+    /// (169 bytes) **and** a transparent `AccountPubKey` (65 bytes:
+    /// chain code + compressed pubkey). Produces a UFVK with both components
+    /// so the wallet can derive shielded and transparent addresses for the
+    /// same account, enabling shieldAll / transparent receive on snap-backed
+    /// accounts.
+    ///
+    /// This is the transparent-capable upgrade of
+    /// `create_account_sapling_efvk`. The snap is expected to hand both blobs
+    /// across the sandbox boundary together (see `getViewingKey` in
+    /// `packages/snap-ycash/src/rpc/getViewingKey.tsx`), and the caller is
+    /// `SnapSigningBackend.importAccount` in the web wallet.
+    pub async fn create_account_full_efvk(
+        &self,
+        account_name: &str,
+        sapling_efvk_bytes: Box<[u8]>,
+        transparent_account_pubkey_bytes: Box<[u8]>,
+        seed_fingerprint: SeedFingerprint,
+        account_hd_index: u32,
+        birthday_height: Option<u32>,
+    ) -> Result<u32, Error> {
+        let efvk = ::sapling::zip32::ExtendedFullViewingKey::read(&sapling_efvk_bytes[..])
+            .map_err(|e| Error::Generic(format!("Sapling EFVK decode: {e}")))?;
+        let t_bytes: [u8; 65] = transparent_account_pubkey_bytes[..]
+            .try_into()
+            .map_err(|_| {
+                Error::Generic(format!(
+                    "Transparent AccountPubKey must be 65 bytes, got {}",
+                    transparent_account_pubkey_bytes.len()
+                ))
+            })?;
+        let transparent =
+            ::zcash_transparent::keys::AccountPubKey::deserialize(&t_bytes).map_err(|e| {
+                Error::Generic(format!("Transparent AccountPubKey decode: {e:?}"))
+            })?;
+        let ufvk = UnifiedFullViewingKey::from_sapling_and_transparent(efvk, transparent)
+            .map_err(|e| Error::Generic(format!("UFVK from Sapling+transparent: {e}")))?;
+        let derivation = Some(Zip32Derivation::new(
+            seed_fingerprint.into(),
+            zip32::AccountId::try_from(account_hd_index)?,
+        ));
+        self.inner
+            .import_ufvk(
+                account_name,
+                &ufvk,
+                AccountPurpose::Spending { derivation },
+                birthday_height,
+                None,
+            )
+            .await
+            .map(|id| *id)
+    }
+
     /// Add a new view-only account to the wallet by directly importing a Unified Full Viewing Key (UFVK)
     ///
     /// # Arguments
