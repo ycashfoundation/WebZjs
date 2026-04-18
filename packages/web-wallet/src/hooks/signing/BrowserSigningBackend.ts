@@ -8,11 +8,6 @@ import { SigningBackend } from './SigningBackend';
  * pipeline rather than PCZT — that classic path bundles build, prove, and
  * sign into a single call that takes the seed phrase directly, which is
  * exactly what we want when the seed lives in-process anyway.
- *
- * The non-PCZT path is also the only path that currently works on Ycash:
- * the PCZT Signer and IoFinalizer roles don't support v4 Sapling
- * transactions (upstream pczt uses `EffectsOnly` which can't compute a
- * ZIP-243 sighash without real Groth16 proof bytes).
  */
 export class BrowserSigningBackend implements SigningBackend {
   readonly label = 'browser';

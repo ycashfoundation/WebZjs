@@ -515,13 +515,11 @@ impl WebWallet {
     /// Shield every transparent UTXO for the given account into the
     /// Sapling pool and broadcast the resulting transaction(s).
     ///
-    /// Ycash-compatible counterpart to [`Self::pczt_shield`]: the PCZT
-    /// Signer/IoFinalizer roles don't implement ZIP-243 sighash, so on
-    /// v4-only networks like Ycash the PCZT shield path can't finalize.
-    /// This entry point uses the classic
-    /// `propose_shielding → create_proposed_transactions →
-    /// send_authorized_transactions` pipeline inside a spawned worker,
-    /// the same shape [`Self::create_proposed_transactions`] uses.
+    /// Seed-phrase counterpart to [`Self::pczt_shield`], for the browser
+    /// signing backend: uses the classic `propose_shielding →
+    /// create_proposed_transactions → send_authorized_transactions`
+    /// pipeline inside a spawned worker, so the caller can pass the seed
+    /// directly without routing through PCZT.
     ///
     /// Proving is CPU-bound and can take tens of seconds; render progress
     /// UI around this call.
