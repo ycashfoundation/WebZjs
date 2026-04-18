@@ -46,12 +46,23 @@ const navItems: NavItem[] = [
 ];
 
 function NavBar() {
-  const { lock } = useSession();
+  const { backend, lock, wipeVault } = useSession();
   const navigate = useNavigate();
 
-  const handleLock = () => {
-    lock();
-    navigate('/unlock', { replace: true });
+  // Browser backend has a passphrase to re-enter, so "Lock" drops the
+  // mnemonic and sends the user to the unlock prompt. Snap backend has no
+  // per-session credential — there's nothing to lock behind — so the same
+  // button instead disconnects: clears the persisted backend choice and
+  // returns to Home where they can pick again.
+  const isSnap = backend === 'snap';
+  const handleClick = async () => {
+    if (isSnap) {
+      await wipeVault();
+      navigate('/', { replace: true });
+    } else {
+      lock();
+      navigate('/unlock', { replace: true });
+    }
   };
 
   return (
@@ -83,10 +94,10 @@ function NavBar() {
       ))}
       <button
         type="button"
-        onClick={handleLock}
+        onClick={handleClick}
         className="text-sm text-[#0e0e0e] font-semibold leading-tight pb-3 hover:text-brand-orange ml-auto"
       >
-        Lock
+        {isSnap ? 'Disconnect' : 'Lock'}
       </button>
     </nav>
   );
