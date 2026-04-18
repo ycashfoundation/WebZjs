@@ -140,8 +140,18 @@ export function SessionProvider({
   }, [backend]);
 
   const wipeVault = useCallback(async () => {
-    await clearEncryptedSeed();
-    await del(BACKEND_KEY);
+    // Full factory reset: besides the encrypted seed and backend choice,
+    // clear the persisted wallet DB + stored birthday so the next
+    // onboarding flow performs a fresh import rather than restoring the
+    // old account. Without this, reconnecting a snap (or importing a
+    // different seed via the browser backend) would silently restore the
+    // previous account from IndexedDB.
+    await Promise.all([
+      clearEncryptedSeed(),
+      del(BACKEND_KEY),
+      del('wallet'),
+      del('birthdayBlock'),
+    ]);
     setBackend(null);
     setMnemonic(null);
     setStatus('no-vault');
