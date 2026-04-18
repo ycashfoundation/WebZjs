@@ -2,10 +2,13 @@
 @import 'tailwindcss';
 
 /*
- * Inzyght-inspired dark palette. Kept the green/amber accents that tie the
- * wallet into the YCash explorer. Density-forward radii (6–8px) and tabular
- * IBM Plex Mono for any identifier a user might actually read character by
- * character (addresses, hashes, block heights, balances).
+ * Theme tokens.
+ *
+ * Dark palette is the Inzyght-inspired default declared in @theme so Tailwind
+ * v4 generates utilities off of it. `:root[data-theme='light']` overrides the
+ * same vars for the paper-toned light palette. A tiny inline script in
+ * index.html sets data-theme before this stylesheet loads so we never flash
+ * the wrong mode on reload.
  */
 @theme {
   --color-bg: #121212;
@@ -23,19 +26,90 @@
   --color-accent-hover: #20a975;
   --color-accent-soft: rgba(25, 135, 84, 0.14);
 
-  --color-ycash: #f4b728;
-  --color-ycash-hover: #ffc84d;
-  --color-ycash-soft: rgba(244, 183, 40, 0.14);
+  /* Official Ycash brand orange (#f56733) from the Ycash Foundation brand kit. */
+  --color-ycash: #f56733;
+  --color-ycash-hover: #ff7d52;
+  --color-ycash-soft: rgba(245, 103, 51, 0.14);
 
   --color-info: #0dcaf0;
   --color-info-soft: rgba(13, 202, 240, 0.14);
   --color-danger: #dc3545;
   --color-danger-soft: rgba(220, 53, 69, 0.14);
 
+  /* Pill foreground colors — lighter tinted shades for soft-bg chips on dark. */
+  --color-pill-accent: #4ccf93;
+  --color-pill-ycash: #ff9166;
+  --color-pill-info: #5cdcf4;
+  --color-pill-danger: #f07988;
+
+  /* Pill border color components (also per-theme). */
+  --color-pill-accent-border: rgba(25, 135, 84, 0.3);
+  --color-pill-ycash-border: rgba(245, 103, 51, 0.3);
+  --color-pill-info-border: rgba(13, 202, 240, 0.3);
+  --color-pill-danger-border: rgba(220, 53, 69, 0.3);
+
+  /* Ambient bg effects — green glow for dark theme. */
+  --bg-glow: radial-gradient(
+    circle at center,
+    rgba(25, 135, 84, 0.12) 0%,
+    rgba(25, 135, 84, 0.04) 40%,
+    transparent 70%
+  );
+  --bg-noise-opacity: 0.04;
+  --bg-noise-blend: overlay;
+
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'IBM Plex Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
   --font-inter: 'IBM Plex Sans', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+:root[data-theme='light'] {
+  /* Paper-toned warm off-white with card surfaces that pop slightly. */
+  --color-bg: #faf9f5;
+  --color-surface: #f1efe7;
+  --color-card: #ffffff;
+  --color-card-hover: #f5f4ee;
+  --color-border: #e4e1d7;
+  --color-border-strong: #c9c5b7;
+
+  --color-text: #1a1a1a;
+  --color-text-muted: #5a564e;
+  --color-text-dim: #8a867c;
+
+  /* Darken accent colors for legibility on white. */
+  --color-accent: #137244;
+  --color-accent-hover: #178752;
+  --color-accent-soft: rgba(19, 114, 68, 0.1);
+
+  --color-ycash: #c9521e;
+  --color-ycash-hover: #dd5b1f;
+  --color-ycash-soft: rgba(201, 82, 30, 0.1);
+
+  --color-info: #0a96b3;
+  --color-info-soft: rgba(10, 150, 179, 0.1);
+  --color-danger: #a91f2c;
+  --color-danger-soft: rgba(169, 31, 44, 0.1);
+
+  --color-pill-accent: #0e5a36;
+  --color-pill-ycash: #a43e14;
+  --color-pill-info: #085d72;
+  --color-pill-danger: #7a1620;
+
+  --color-pill-accent-border: rgba(19, 114, 68, 0.32);
+  --color-pill-ycash-border: rgba(201, 82, 30, 0.32);
+  --color-pill-info-border: rgba(10, 150, 179, 0.32);
+  --color-pill-danger-border: rgba(169, 31, 44, 0.32);
+
+  /* Softer warm glow in the backdrop; lower noise + different blend for paper. */
+  --bg-glow: radial-gradient(
+    circle at center,
+    rgba(201, 82, 30, 0.08) 0%,
+    rgba(201, 82, 30, 0.02) 45%,
+    transparent 75%
+  );
+  --bg-noise-opacity: 0.03;
+  --bg-noise-blend: multiply;
 }
 
 @layer base {
@@ -52,7 +126,8 @@
     min-height: 100vh;
   }
 
-  /* Subtle grain — barely perceptible, enough to kill banding on flat dark. */
+  /* Subtle grain — opacity + blend mode swap per theme (overlay on dark,
+     multiply on light) so the texture reads without dirtying the paper. */
   body::before {
     content: '';
     position: fixed;
@@ -61,13 +136,12 @@
     background-image: url('../assets/noise.png');
     background-size: 128px 128px;
     background-repeat: repeat;
-    opacity: 0.04;
+    opacity: var(--bg-noise-opacity);
     pointer-events: none;
-    mix-blend-mode: overlay;
+    mix-blend-mode: var(--bg-noise-blend);
   }
 
-  /* Ambient green glow in the upper-left, anchoring the YCash accent color
-     into the backdrop without shouting. */
+  /* Ambient accent glow in the upper-left corner of the viewport. */
   body::after {
     content: '';
     position: fixed;
@@ -76,23 +150,16 @@
     width: 70vw;
     height: 70vh;
     z-index: -1;
-    background: radial-gradient(
-      circle at center,
-      rgba(25, 135, 84, 0.12) 0%,
-      rgba(25, 135, 84, 0.04) 40%,
-      transparent 70%
-    );
+    background: var(--bg-glow);
     filter: blur(80px);
     pointer-events: none;
   }
 
-  /* Selection uses the YCash amber so highlighted text feels on-brand. */
   ::selection {
     background: var(--color-ycash);
-    color: #121212;
+    color: #ffffff;
   }
 
-  /* Dark-themed scrollbars. */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: var(--color-bg); }
   ::-webkit-scrollbar-thumb {
@@ -100,12 +167,19 @@
     border-radius: 5px;
     border: 2px solid var(--color-bg);
   }
-  ::-webkit-scrollbar-thumb:hover { background: #545a63; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-text-dim); }
 
-  /* Native form controls adopt the dark color scheme. */
-  input, textarea, select { color-scheme: dark; }
+  /* Native form controls pick up the root color scheme automatically. */
+  input, textarea, select {
+    color-scheme: light dark;
+  }
+  :root[data-theme='dark'] input,
+  :root[data-theme='dark'] textarea,
+  :root[data-theme='dark'] select { color-scheme: dark; }
+  :root[data-theme='light'] input,
+  :root[data-theme='light'] textarea,
+  :root[data-theme='light'] select { color-scheme: light; }
 
-  /* Remove the embedded number-input spinners — they're low-contrast on dark. */
   input[type='number']::-webkit-inner-spin-button,
   input[type='number']::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -115,7 +189,6 @@
 
   a { color: inherit; }
 
-  /* Focus ring — green accent, matches primary CTA. */
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
@@ -124,28 +197,24 @@
 }
 
 @layer components {
-  /* Reusable card surface. */
   .card-surface {
     background-color: var(--color-card);
     border: 1px solid var(--color-border);
     border-radius: 8px;
   }
 
-  /* Tabular + slashed-zero for anything a user reads character-by-character. */
   .mono {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums slashed-zero;
     letter-spacing: -0.01em;
   }
 
-  /* "// comment" affordance — used for secondary labels in the dev-tool vibe. */
   .kbd-comment {
     font-family: var(--font-mono);
     color: var(--color-text-dim);
     font-size: 0.75rem;
   }
 
-  /* Big-balance display style. */
   .stat-number {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums slashed-zero;
@@ -153,7 +222,6 @@
     letter-spacing: -0.02em;
   }
 
-  /* Status pills — Inzyght-style bordered chips. */
   .pill {
     display: inline-flex;
     align-items: center;
@@ -167,9 +235,9 @@
     letter-spacing: 0.08em;
     border: 1px solid transparent;
   }
-  .pill-accent  { background: var(--color-accent-soft);  color: #4ccf93;  border-color: rgba(25,135,84,0.3); }
-  .pill-ycash   { background: var(--color-ycash-soft);   color: #ffd272; border-color: rgba(244,183,40,0.3); }
-  .pill-info    { background: var(--color-info-soft);    color: #5cdcf4;  border-color: rgba(13,202,240,0.3); }
-  .pill-danger  { background: var(--color-danger-soft);  color: #f07988;  border-color: rgba(220,53,69,0.3); }
-  .pill-muted   { background: var(--color-border);       color: var(--color-text-muted); border-color: var(--color-border-strong); }
+  .pill-accent { background: var(--color-accent-soft); color: var(--color-pill-accent); border-color: var(--color-pill-accent-border); }
+  .pill-ycash  { background: var(--color-ycash-soft);  color: var(--color-pill-ycash);  border-color: var(--color-pill-ycash-border); }
+  .pill-info   { background: var(--color-info-soft);   color: var(--color-pill-info);   border-color: var(--color-pill-info-border); }
+  .pill-danger { background: var(--color-danger-soft); color: var(--color-pill-danger); border-color: var(--color-pill-danger-border); }
+  .pill-muted  { background: var(--color-border); color: var(--color-text-muted); border-color: var(--color-border-strong); }
 }
