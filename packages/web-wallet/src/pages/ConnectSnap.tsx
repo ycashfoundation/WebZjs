@@ -6,6 +6,7 @@ import { useMetaMask } from '../hooks/snaps/useMetaMask';
 import { useRequestSnap } from '../hooks/snaps/useRequestSnap';
 import Button from '../components/Button/Button';
 import Loader from '../components/Loader/Loader';
+import { YCASH_FORK_HEIGHT } from '../config/constants';
 
 /**
  * Snap onboarding page. Prompts the user to install the Ycash MetaMask snap,
@@ -21,6 +22,8 @@ const ConnectSnap: React.FC = () => {
   const requestSnap = useRequestSnap();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recoverOlder, setRecoverOlder] = useState(false);
+  const [birthdayInput, setBirthdayInput] = useState('');
 
   // Already unlocked? Bounce to dashboard — snap backend commits are idempotent
   // but we don't want to render the onboarding screen twice.
@@ -30,12 +33,27 @@ const ConnectSnap: React.FC = () => {
 
   const handleInstallAndConnect = async () => {
     setError(null);
+    let birthdayHeight: number | undefined;
+    if (recoverOlder) {
+      const parsed = Number.parseInt(birthdayInput, 10);
+      if (
+        !Number.isFinite(parsed) ||
+        String(parsed) !== birthdayInput.trim() ||
+        parsed < YCASH_FORK_HEIGHT
+      ) {
+        setError(
+          `Enter a whole block height ≥ ${YCASH_FORK_HEIGHT} (Ycash fork height).`,
+        );
+        return;
+      }
+      birthdayHeight = parsed;
+    }
     setBusy(true);
     try {
       if (!installedSnap) {
         await requestSnap();
       }
-      await chooseSnapBackend();
+      await chooseSnapBackend(birthdayHeight);
       // Navigation happens via the effect above once status flips.
     } catch (err) {
       console.error('Connect snap failed:', err);
@@ -104,6 +122,40 @@ const ConnectSnap: React.FC = () => {
           <p>Ycash Snap is installed. Click Connect to finish onboarding.</p>
         </div>
       )}
+
+      <div className="mb-6 rounded-xl border border-neutral-200 p-4 text-sm">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={recoverOlder}
+            onChange={(e) => setRecoverOlder(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <span className="font-medium">Recover older wallet?</span>
+            <span className="block text-neutral-600 text-xs mt-1">
+              By default, the snap starts syncing from the current chain tip.
+              Enable this if you've connected this seed before and want to
+              recover earlier shielded notes.
+            </span>
+          </span>
+        </label>
+        {recoverOlder && (
+          <div className="mt-3 flex flex-col gap-1">
+            <label className="text-neutral-600 text-xs">
+              Birthday block (min: {YCASH_FORK_HEIGHT})
+            </label>
+            <input
+              type="number"
+              value={birthdayInput}
+              onChange={(e) => setBirthdayInput(e.target.value)}
+              placeholder="e.g. 2859770"
+              min={YCASH_FORK_HEIGHT}
+              className="px-2 py-1 border border-neutral-300 rounded text-sm w-full bg-white text-black"
+            />
+          </div>
+        )}
+      </div>
 
       {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
 

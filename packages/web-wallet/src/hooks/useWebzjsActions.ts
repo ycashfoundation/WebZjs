@@ -142,10 +142,17 @@ export function useWebZjsActions(): WebzjsActions {
         return;
       }
 
-      // Fresh account: birthday defaults to the current chain tip so a
-      // brand-new user doesn't scan the entire Ycash history.
+      // Fresh account: pick the birthday in this priority:
+      //   1. explicit arg from the caller
+      //   2. pre-seeded `birthdayBlock` in IDB (set by onboarding flows that
+      //      want to recover an older wallet — see `chooseSnapBackend`)
+      //   3. current chain tip, so a brand-new user doesn't scan all history
+      const storedBirthday = (await get('birthdayBlock')) as string | undefined;
       const birthday =
-        birthdayHeight ?? Number(await state.webWallet.get_latest_block());
+        birthdayHeight ??
+        (storedBirthday
+          ? Number(storedBirthday)
+          : Number(await state.webWallet.get_latest_block()));
       await set('birthdayBlock', String(birthday));
       const accountId = await signingBackend.importAccount(
         state.webWallet,

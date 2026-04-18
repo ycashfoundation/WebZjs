@@ -41,8 +41,12 @@ interface SessionContextShape {
    * should have already installed the snap via `useRequestSnap`. This only
    * persists the choice and moves the session to `unlocked`, at which point
    * the Dashboard bootstrap will pull the UFVK from the snap.
+   *
+   * If `birthdayHeight` is provided, it is persisted as the account's sync
+   * start block so Dashboard's `setupAccount` picks it up instead of the
+   * chain tip default. Used for recovering older wallet state after a wipe.
    */
-  chooseSnapBackend: () => Promise<void>;
+  chooseSnapBackend: (birthdayHeight?: number) => Promise<void>;
   /** Drop any in-memory mnemonic. For snap backend, effectively a no-op. */
   lock: () => void;
   /**
@@ -124,8 +128,11 @@ export function SessionProvider({
     setStatus('unlocked');
   }, []);
 
-  const chooseSnapBackend = useCallback(async () => {
+  const chooseSnapBackend = useCallback(async (birthdayHeight?: number) => {
     await set(BACKEND_KEY, 'snap');
+    if (birthdayHeight !== undefined) {
+      await set('birthdayBlock', String(birthdayHeight));
+    }
     setBackend('snap');
     setMnemonic(null);
     setStatus('unlocked');
