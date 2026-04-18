@@ -8,33 +8,49 @@ import Loader from '../components/Loader/Loader';
 
 /**
  * Dashboard is the authenticated shell. It assumes the ProtectedRoute gate
- * has already confirmed the session is unlocked. On first mount it lazily
- * initializes the wasm runtime and bootstraps the active account from the
- * unlocked mnemonic — either promoting an existing IndexedDB-restored
- * account to active, or creating a fresh one at the current tip.
+ * has already confirmed the session is unlocked. Bootstrap runs in two
+ * stages because `setupAccount` depends on `state.webWallet`, which is only
+ * populated after `initWallet` dispatches. Running them back-to-back in one
+ * effect captures a stale closure (webWallet=null) and silently no-ops the
+ * account creation. Splitting into two effects — one driven by session
+ * status, one by webWallet availability — is the idiomatic fix.
  */
 const Dashboard: React.FC = () => {
   const { state, initWallet } = useWebZjsContext();
   const { status: sessionStatus } = useSession();
   const { setupAccount } = useWebZjsActions();
-  const bootstrappedRef = useRef(false);
+  const initStartedRef = useRef(false);
+  const setupStartedRef = useRef(false);
 
   useEffect(() => {
     if (sessionStatus !== 'unlocked') return;
-    if (bootstrappedRef.current) return;
-    bootstrappedRef.current = true;
-
+    if (initStartedRef.current) return;
+    initStartedRef.current = true;
     (async () => {
       try {
         await initWallet();
-        await setupAccount();
       } catch (err) {
-        console.error('Dashboard bootstrap failed:', err);
-        // Allow retry next mount if init fails
-        bootstrappedRef.current = false;
+        console.error('Dashboard initWallet failed:', err);
+        initStartedRef.current = false;
       }
     })();
-  }, [sessionStatus, initWallet, setupAccount]);
+  }, [sessionStatus, initWallet]);
+
+  useEffect(() => {
+    if (sessionStatus !== 'unlocked') return;
+    if (!state.webWallet) return;
+    if (state.activeAccount != null) return;
+    if (setupStartedRef.current) return;
+    setupStartedRef.current = true;
+    (async () => {
+      try {
+        await setupAccount();
+      } catch (err) {
+        console.error('Dashboard setupAccount failed:', err);
+        setupStartedRef.current = false;
+      }
+    })();
+  }, [sessionStatus, state.webWallet, state.activeAccount, setupAccount]);
 
   const ready = state.initialized && state.activeAccount != null;
 
