@@ -60,16 +60,26 @@ export class SnapSigningBackend implements SigningBackend {
   ): Promise<number> {
     // Ycash never activated unified addresses, so librustzcash-ycash panics
     // in `UnifiedFullViewingKey::encode` for Ycash networks. The snap hands
-    // out the raw Sapling ExtendedFullViewingKey (169-byte ZIP-32 encoding)
-    // hex-encoded instead, and the wallet reconstructs a sapling-only
-    // in-memory UFVK from those bytes.
-    const [efvkHex, fingerprintHex] = await Promise.all([
-      this.invokeSnap<string>('getViewingKey'),
+    // out the Sapling ExtendedFullViewingKey (169 bytes) and transparent
+    // AccountPubKey (65 bytes) separately, and the wallet reconstructs a
+    // full in-memory UFVK from them so both shielded and transparent
+    // address derivation / shieldAll work.
+    const [viewingKeys, fingerprintHex] = await Promise.all([
+      this.invokeSnap<{
+        saplingEfvkHex: string;
+        transparentAccountPubkeyHex: string;
+      }>('getViewingKey'),
       this.invokeSnap<string>('getSeedFingerprint'),
     ]);
-    if (!/^[0-9a-fA-F]{338}$/.test(efvkHex)) {
+    const { saplingEfvkHex, transparentAccountPubkeyHex } = viewingKeys;
+    if (!/^[0-9a-fA-F]{338}$/.test(saplingEfvkHex)) {
       throw new Error(
-        `Snap returned an invalid Sapling EFVK (expected 169 bytes hex): ${efvkHex}`,
+        `Snap returned an invalid Sapling EFVK (expected 169 bytes hex): ${saplingEfvkHex}`,
+      );
+    }
+    if (!/^[0-9a-fA-F]{130}$/.test(transparentAccountPubkeyHex)) {
+      throw new Error(
+        `Snap returned an invalid transparent AccountPubKey (expected 65 bytes hex): ${transparentAccountPubkeyHex}`,
       );
     }
     if (!/^[0-9a-fA-F]{64}$/.test(fingerprintHex)) {
@@ -79,9 +89,10 @@ export class SnapSigningBackend implements SigningBackend {
     }
     const fingerprint = SeedFingerprint.from_bytes(hexToBytes(fingerprintHex));
 
-    return wallet.create_account_sapling_efvk(
+    return wallet.create_account_full_efvk(
       accountName,
-      hexToBytes(efvkHex),
+      hexToBytes(saplingEfvkHex),
+      hexToBytes(transparentAccountPubkeyHex),
       fingerprint,
       0,
       birthdayHeight,
