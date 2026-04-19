@@ -65,6 +65,12 @@ check-wasm:
 check-wasm-sqlite:
     cargo check --no-default-features --features="wasm-parallel,no-bundler,sqlite-db" --target=wasm32-unknown-unknown
 
+# End-to-end smoke test for the wasm SQLite backend: opens :memory: and
+# runs init_wallet_db. Uses Chrome headless + chromedriver (wasm-pack
+# auto-downloads the driver on first run).
+test-sqlite-smoke:
+    cd crates/webzjs-wallet && WASM_BINDGEN_TEST_TIMEOUT=120 wasm-pack test --release --headless --chrome --no-default-features --features "wasm no-bundler sqlite-db" -Z build-std="panic_abort,std" --test sqlite_smoke
+
 # run a local proxy to the mainnet lightwalletd server on port 443
 run-proxy:
     grpcwebproxy  --backend_max_call_recv_msg_size=10485760 --server_http_max_write_timeout=1000s --server_http_max_read_timeout=1000s \
