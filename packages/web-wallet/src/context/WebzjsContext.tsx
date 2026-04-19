@@ -15,6 +15,7 @@ import initWebzJSWallet, {
 } from '@chainsafe/webzjs-wallet';
 import initWebzJSKeys from '@chainsafe/webzjs-keys';
 import { MAINNET_LIGHTWALLETD_PROXY } from '../config/constants';
+import { ensureSaplingParams } from '../lib/saplingParams';
 import { Snap } from '../types';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -122,6 +123,25 @@ export const WebZjsProvider = ({ children }: { children: React.ReactNode }) => {
         });
         return;
       }
+
+      // Sapling proving params are no longer bundled into the wasm binary
+      // (saves ~51 MB per page load). Kick off the fetch now so the wallet
+      // is spend-ready by the time the user clicks Send. Don't await — the
+      // rest of wallet bootstrap (reading summary, chain height, etc.) does
+      // not require the prover, and a slow network here should not delay
+      // the Dashboard from rendering.
+      ensureSaplingParams().catch((err) => {
+        console.warn(
+          'Sapling proving params failed to load — spends will be blocked until this resolves:',
+          err,
+        );
+        dispatch({
+          type: 'set-error',
+          payload: new Error(
+            `Could not load signing keys: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        });
+      });
 
       const bytes = await get('wallet');
       let wallet: WebWallet;

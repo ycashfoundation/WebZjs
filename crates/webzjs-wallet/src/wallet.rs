@@ -49,7 +49,6 @@ use zcash_client_memory::{MemBlockCache, MemoryWalletDb};
 use zcash_keys::keys::{UnifiedFullViewingKey, UnifiedSpendingKey};
 use zcash_primitives::transaction::fees::FeeRule;
 use zcash_primitives::transaction::TxId;
-use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::ShieldedProtocol;
 
 use zcash_client_backend::sync::run;
@@ -364,7 +363,7 @@ where
         proposal: Proposal<StandardFeeRule, N>,
         usk: &UnifiedSpendingKey,
     ) -> Result<NonEmpty<TxId>, Error> {
-        let prover = LocalTxProver::bundled();
+        let prover = crate::sapling_params::prover()?;
         let mut db = self.db.write().await;
         let transactions = create_proposed_transactions::<
             _,
@@ -376,8 +375,8 @@ where
         >(
             &mut *db,
             &self.network,
-            &prover,
-            &prover,
+            prover,
+            prover,
             &SpendingKeys::from_unified_spending_key(usk.clone()),
             OvkPolicy::Sender,
             &proposal,
@@ -791,11 +790,11 @@ where
             pczt
         };
 
-        let prover = LocalTxProver::bundled();
+        let prover = crate::sapling_params::prover()?;
         let pczt = Prover::new(pczt)
             .create_orchard_proof(&orchard::circuit::ProvingKey::build())
             .map_err(|e| Error::PcztProve(format!("Failed to create Orchard proof: {:?}", e)))?
-            .create_sapling_proofs(&prover, &prover)
+            .create_sapling_proofs(prover, prover)
             .map_err(|e| Error::PcztProve(format!("Failed to create Sapling proofs: {:?}", e)))?
             .finish();
 
@@ -850,7 +849,7 @@ where
             ));
         }
 
-        let prover = LocalTxProver::bundled();
+        let prover = crate::sapling_params::prover()?;
         let (spend_vk, output_vk) = prover.verifying_keys();
         let mut db = self.db.write().await;
         let txid = extract_and_store_transaction_from_pczt::<_, ()>(

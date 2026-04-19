@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Sapling proving params — fetched by scripts/fetch-sapling-params.mjs
+public-sapling/

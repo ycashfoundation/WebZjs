@@ -5,8 +5,9 @@
   "type": "module",
   "source": "index.html",
   "scripts": {
-    "dev": "node server.js",
-    "build": "rm -rf dist && parcel build index.html --dist-dir dist",
+    "fetch-sapling-params": "node scripts/fetch-sapling-params.mjs",
+    "dev": "yarn fetch-sapling-params && node server.js",
+    "build": "yarn fetch-sapling-params && rm -rf dist && parcel build index.html --dist-dir dist && cp public-sapling/*.params dist/",
     "test": "vitest run",
     "test:watch": "vitest"
   },

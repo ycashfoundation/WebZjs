@@ -40,6 +40,11 @@ async function run() {
 
   app.use(history());
   app.use(express.static(join(__dirname, 'dist')));
+  // Serve the Sapling proving parameters from the gitignored public-sapling/
+  // folder populated by scripts/fetch-sapling-params.mjs. In production the
+  // build step copies them into dist/, so this alias is only relevant in
+  // dev — but it costs nothing to keep it wired for both.
+  app.use(express.static(join(__dirname, 'public-sapling')));
 
   const port = process.env.PORT || 3000;
   app.listen(port, () => {

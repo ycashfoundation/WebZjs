@@ -84,6 +84,8 @@ pub enum Error {
     PcztCreate(String),
     #[error("Failed to prove Pczt: {0}")]
     PcztProve(String),
+    #[error("Sapling parameters not loaded. The JS host must call setSaplingParams() before any spend flow.")]
+    SaplingParamsNotLoaded,
     #[error("Failed to send Pczt: {0}")]
     PcztSend(String),
     #[error("Failed to combine Pczt: {0}")]
