@@ -204,6 +204,33 @@ pub fn extract_transaction_history(
         }
     }
 
+    // Process transparent received outputs for this account. These are
+    // inbound UTXOs that were paid to the account's transparent addresses —
+    // without this pass, transparent receives are invisible in the history
+    // UI (balance still reports them correctly, but the user can't see the
+    // individual txs).
+    for (_outpoint, utxo) in db.transparent_received_outputs().iter() {
+        if utxo.account_id() != account_id_typed {
+            continue;
+        }
+
+        let txid = utxo.transaction_id();
+        let entry = tx_map.entry(txid).or_default();
+        entry.received_value += utxo.value();
+        entry.pools.insert("transparent".to_string());
+
+        // Populate status/height from tx_table if we haven't already seen
+        // this txid via a shielded note above. For mixed-pool txs the
+        // shielded pass wins, which is fine — the data is the same.
+        if entry.status.is_none() {
+            if let Some(tx_entry) = db.tx_table().get(&txid) {
+                entry.status = Some(tx_entry.status());
+                entry.block_height = tx_entry.mined_height();
+                entry.expiry_height = tx_entry.expiry_height();
+            }
+        }
+    }
+
     // Process sent notes for this account
     for (sent_note_id, sent_note) in db.sent_notes().iter() {
         if sent_note.from_account_id() != account_id_typed {
@@ -327,7 +354,11 @@ pub fn extract_transaction_history(
                 .map(|t| t as u64);
 
             TransactionHistoryEntry {
-                txid: hex::encode(txid.as_ref()),
+                // `TxId::Display` emits the byte-reversed hex that block
+                // explorers and RPC methods expect. `hex::encode(as_ref())`
+                // would emit the raw in-memory bytes, which look right but
+                // don't resolve anywhere.
+                txid: txid.to_string(),
                 tx_type,
                 value: match tx_type {
                     TransactionType::Shielded => acc.received_value as i64,
