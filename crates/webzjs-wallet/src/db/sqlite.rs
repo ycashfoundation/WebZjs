@@ -20,15 +20,47 @@
 use rand::rngs::OsRng;
 use rusqlite::Connection;
 use webzjs_common::Network;
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{util::Clock, WalletDb};
+
+/// A [`Clock`] impl that sources the current time from `Date.now()` via
+/// `js-sys` on wasm32, since `std::time::SystemTime::now()` is unimplemented
+/// for `wasm32-unknown-unknown` and panics at runtime.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[derive(Clone, Copy, Default)]
+pub struct WasmClock;
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+impl Clock for WasmClock {
+    fn now(&self) -> std::time::SystemTime {
+        let ms_since_epoch = js_sys::Date::now() as u64;
+        std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms_since_epoch)
+    }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+type DefaultClock = WasmClock;
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+type DefaultClock = zcash_client_sqlite::util::SystemClock;
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+fn default_clock() -> DefaultClock {
+    WasmClock
+}
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+fn default_clock() -> DefaultClock {
+    zcash_client_sqlite::util::SystemClock
+}
 
 /// A SQLite-backed wallet database.
 ///
 /// Wraps [`zcash_client_sqlite::WalletDb`] with the `Connection` / `Network` /
-/// [`SystemClock`] / [`OsRng`] type choices that the rest of the WebZjs stack
-/// expects.
+/// [`DefaultClock`] / [`OsRng`] type choices that the rest of the WebZjs stack
+/// expects. On wasm32, [`DefaultClock`] is [`WasmClock`] (Date.now); on native
+/// it is [`zcash_client_sqlite::util::SystemClock`].
 pub struct SqliteWalletDb {
-    inner: WalletDb<Connection, Network, SystemClock, OsRng>,
+    inner: WalletDb<Connection, Network, DefaultClock, OsRng>,
 }
 
 impl SqliteWalletDb {
@@ -60,7 +92,7 @@ impl SqliteWalletDb {
     }
 
     fn open_uri(uri: &str, network: Network) -> Result<Self, Error> {
-        let inner = WalletDb::for_path(uri, network, SystemClock, OsRng)
+        let inner = WalletDb::for_path(uri, network, default_clock(), OsRng)
             .map_err(Error::Sqlite)?;
         Ok(Self { inner })
     }
@@ -68,11 +100,11 @@ impl SqliteWalletDb {
     /// Borrow the underlying [`WalletDb`]. Intended for the few call sites that
     /// hand the db to `zcash_client_backend::sync::run` or similar. Prefer
     /// going through the `crate::Wallet` facade instead.
-    pub fn inner(&self) -> &WalletDb<Connection, Network, SystemClock, OsRng> {
+    pub fn inner(&self) -> &WalletDb<Connection, Network, DefaultClock, OsRng> {
         &self.inner
     }
 
-    pub fn inner_mut(&mut self) -> &mut WalletDb<Connection, Network, SystemClock, OsRng> {
+    pub fn inner_mut(&mut self) -> &mut WalletDb<Connection, Network, DefaultClock, OsRng> {
         &mut self.inner
     }
 }
