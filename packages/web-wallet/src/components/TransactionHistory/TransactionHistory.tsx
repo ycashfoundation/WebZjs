@@ -1,4 +1,7 @@
+import { useCallback } from 'react';
 import { useTransactionHistory } from '../../hooks/useTransactionHistory';
+import { useWebZjsActions } from '../../hooks/useWebzjsActions';
+import { useWebZjsContext } from '../../context/WebzjsContext';
 import { zatsToYec } from '../../utils';
 import type {
   TransactionHistoryEntry,
@@ -93,11 +96,16 @@ function TransactionRow({ transaction }: TransactionRowProps) {
           )}
         </div>
       </div>
-      <div
-        className="mt-3 pt-3 border-t border-border font-mono text-[11px] text-text-dim truncate"
-        title={transaction.txid}
-      >
-        {truncateMiddle(transaction.txid, 16, 12)}
+      <div className="mt-3 pt-3 border-t border-border font-mono text-[11px] text-text-dim truncate">
+        <a
+          href={`https://explorer.ycash.xyz/transaction/${transaction.txid}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={transaction.txid}
+          className="hover:text-ycash transition-colors"
+        >
+          {truncateMiddle(transaction.txid, 16, 12)}
+        </a>
       </div>
     </div>
   );
@@ -106,6 +114,26 @@ function TransactionRow({ transaction }: TransactionRowProps) {
 function TransactionHistory() {
   const { transactions, loading, error, totalCount, hasMore, loadMore, refresh } =
     useTransactionHistory({ pageSize: 20 });
+  const { triggerRescan } = useWebZjsActions();
+  const { state } = useWebZjsContext();
+
+  // "Refresh" should behave like the user expects: go check the chain for
+  // anything new. `refresh()` alone just re-reads the local DB, which is
+  // almost always stale relative to tip. Fire a rescan first; the
+  // post-sync auto-refetch (keyed on fully_scanned_height advancing) then
+  // pulls any new txs into the list. Fall through to `refresh()` as a
+  // fallback so a user on a stuck sync still gets *something* to happen.
+  const handleRefresh = useCallback(async () => {
+    if (state.syncInProgress) {
+      await refresh();
+      return;
+    }
+    try {
+      await triggerRescan();
+    } finally {
+      await refresh();
+    }
+  }, [state.syncInProgress, triggerRescan, refresh]);
 
   if (error) {
     return (
@@ -129,11 +157,15 @@ function TransactionHistory() {
             : 'No transactions yet'}
         </div>
         <button
-          onClick={refresh}
-          disabled={loading}
+          onClick={handleRefresh}
+          disabled={loading || state.syncInProgress}
           className="font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim hover:text-ycash transition-colors disabled:opacity-40"
         >
-          {loading ? 'Loading…' : 'Refresh'}
+          {state.syncInProgress
+            ? 'Syncing…'
+            : loading
+              ? 'Loading…'
+              : 'Refresh'}
         </button>
       </div>
 

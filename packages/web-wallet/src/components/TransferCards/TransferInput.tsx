@@ -19,7 +19,7 @@ export function TransferInput({
   nextStep,
   handleChange,
 }: TransferInputProps): React.JSX.Element {
-  const { spendableBalance } = useBalance();
+  const { spendableBalance, shieldedBalance } = useBalance();
 
   const [errors, setErrors] = useState({
     recipient: '',
@@ -71,6 +71,14 @@ export function TransferInput({
 
   return (
     <div className="card-surface p-6 md:p-8 flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-3 pb-4 border-b border-border">
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+          Shielded balance
+        </span>
+        <span className="mono text-sm text-ycash">
+          {zatsToYec(shieldedBalance)} YEC
+        </span>
+      </div>
       <Input
         label="Recipient address"
         id="recipient"

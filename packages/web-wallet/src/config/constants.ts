@@ -10,3 +10,9 @@ export const RESCAN_INTERVAL = 35000;          // 35s sync interval
 // Pre-fork Sapling notes on the shared history are addressable, but for a
 // fresh Ycash wallet this is the minimum sensible birthday.
 export const YCASH_FORK_HEIGHT = 570000;
+
+// Minimum transparent balance worth shielding: the 0.001 YEC net floor plus
+// a ~0.0005 YEC fee buffer. Below this, the shield path itself would reject
+// the transaction with InsufficientFunds, so we hide the "Shield Now"
+// affordance on the Balance page to avoid dead clicks.
+export const MIN_SHIELDABLE_ZATS = 150_000;

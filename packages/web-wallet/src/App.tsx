@@ -27,7 +27,7 @@ function App() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="w-full bg-surface border-b border-border px-6 py-2.5">
+      <div className="sticky top-0 z-40 w-full bg-surface border-b border-border px-6 py-2.5">
         <div className="flex items-center gap-3 text-xs text-text-muted">
           <span className="pill pill-ycash shrink-0">Beta</span>
           <span className="leading-relaxed">

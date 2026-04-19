@@ -10,7 +10,6 @@ import Dashboard from '../pages/Dashboard';
 import AccountSummary from '../pages/AccountSummary';
 import TransferBalance from '../pages/TransferBalance/TransferBalance';
 import Receive from '../pages/Receive/Receive';
-import { ShieldBalance } from 'src/pages/ShieldBalance/ShieldBalance';
 import TransactionHistory from '../pages/TransactionHistory/TransactionHistory';
 
 const router = createBrowserRouter([
@@ -36,7 +35,6 @@ const router = createBrowserRouter([
         children: [
           { path: 'account-summary', element: <AccountSummary /> },
           { path: 'transfer-balance', element: <TransferBalance /> },
-          { path: 'shield-balance', element: <ShieldBalance /> },
           { path: 'receive', element: <Receive /> },
           { path: 'transactions', element: <TransactionHistory /> },
         ],

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useWebZjsActions } from '../../hooks';
 import { useWebZjsContext } from '../../context/WebzjsContext';
 import QrCode from './QrCode';
-import PageHeading from '../../components/PageHeading/PageHeading';
 import Loader from '../../components/Loader/Loader';
 import Tab from './Tab';
 
@@ -65,7 +64,6 @@ function Receive(): React.JSX.Element {
 
   return (
     <div className="w-full pb-16">
-      <PageHeading title="Receive" eyebrow="Your addresses" />
       <div className="card-surface p-6 md:p-8">
         {loading ? (
           <div className="py-20 flex justify-center">

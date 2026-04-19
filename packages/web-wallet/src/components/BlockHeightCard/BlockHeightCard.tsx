@@ -24,26 +24,38 @@ export const BlockHeightCard: FC<{
     setCustomBirthday('');
   };
 
-  const chainHeight = state.chainHeight ? String(state.chainHeight) : '—';
-  const syncedHeight = state.summary?.fully_scanned_height
-    ? String(state.summary.fully_scanned_height)
-    : '—';
+  const chainHeightNum = state.chainHeight ? Number(state.chainHeight) : null;
+  const syncedHeightNum = state.summary?.fully_scanned_height ?? null;
+  const chainHeight = chainHeightNum != null ? String(chainHeightNum) : '—';
+  const syncedHeight =
+    syncedHeightNum != null ? String(syncedHeightNum) : '—';
 
-  const Row = ({ label, value }: { label: string; value: string }) => (
-    <div className="flex items-baseline justify-between gap-4 py-2.5 border-b border-border last:border-b-0">
-      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
-        {label}
-      </span>
-      <span className="mono text-base text-text">{value}</span>
-    </div>
-  );
+  // "Caught up" means the scanned head is within 1 block of the chain tip —
+  // the wallet occasionally trails by one during the propagation window even
+  // when it is, for the user's purposes, fully synced. In that case we drop
+  // the "X / Y" split and show the single chain-tip number, which matches
+  // how the "synced" pill reads.
+  const caughtUp =
+    chainHeightNum != null &&
+    syncedHeightNum != null &&
+    syncedHeightNum >= chainHeightNum - 1;
 
   return (
     <div className="card-surface p-6">
-      <div className="flex items-center justify-between mb-4">
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
-          Sync status
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex items-baseline flex-wrap gap-x-3 gap-y-1 min-w-0">
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-text-dim">
+            Latest block
+          </span>
+          <span className="mono text-base text-text">
+            {caughtUp ? chainHeight : `${syncedHeight} / ${chainHeight}`}
+          </span>
+          {syncedFrom && (
+            <span className="mono text-xs text-text-dim">
+              First: {syncedFrom}
+            </span>
+          )}
+        </div>
         {state.syncInProgress ? (
           <span className="pill pill-info inline-flex items-center gap-1.5">
             <span className="relative flex h-1.5 w-1.5">
@@ -55,12 +67,6 @@ export const BlockHeightCard: FC<{
         ) : (
           <span className="pill pill-accent">synced</span>
         )}
-      </div>
-
-      <div className="flex flex-col">
-        <Row label="Chain height" value={chainHeight} />
-        <Row label="Scanned to" value={syncedHeight} />
-        {syncedFrom && <Row label="Synced from" value={syncedFrom} />}
       </div>
 
       {onFullResync && !state.syncInProgress && (

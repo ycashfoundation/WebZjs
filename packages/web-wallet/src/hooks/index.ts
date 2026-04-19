@@ -4,3 +4,4 @@ export * from './snaps/useRequestSnap.ts';
 export * from './snaps/useInvokeSnap.ts';
 export * from './useWebzjsActions.ts';
 export * from './usePendingTransactions.ts';
+export * from './useYecPrice.ts';
