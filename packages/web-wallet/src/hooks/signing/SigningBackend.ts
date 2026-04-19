@@ -48,6 +48,32 @@ export interface SigningBackend {
   /**
    * Shield every transparent UTXO for `accountId` into the Sapling pool.
    * Resolves when the shielding transaction has been broadcast.
+   *
+   * An optional `onStage` callback fires between each pipeline step so the
+   * caller can render step-by-step status (especially useful for the Snap
+   * path, where two of the stages require the user to approve a prompt in
+   * MetaMask and "Signing locally" is indistinguishable from "Waiting for
+   * MetaMask" without this hook).
    */
-  shieldAll(wallet: WebWallet, accountId: number): Promise<void>;
+  shieldAll(
+    wallet: WebWallet,
+    accountId: number,
+    onStage?: (stage: ShieldStage) => void,
+  ): Promise<void>;
 }
+
+/**
+ * Coarse stages in the shield pipeline. Exposed so the UI can render a
+ * step-by-step indicator without having to know the PCZT internals.
+ *
+ * The two `awaiting-*` stages are where the user must click "approve" in
+ * MetaMask — label them explicitly so the UI can nudge them instead of
+ * showing a generic spinner while MetaMask is modally blocking.
+ */
+export type ShieldStage =
+  | 'creating'
+  | 'awaiting-pgk'
+  | 'proving'
+  | 'awaiting-sig'
+  | 'broadcasting'
+  | 'done';

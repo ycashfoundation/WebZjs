@@ -6,7 +6,7 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
-import { get } from 'idb-keyval';
+import { get, del } from 'idb-keyval';
 
 import initWebzJSWallet, {
   initThreadPool,
@@ -28,6 +28,13 @@ export interface WebZjsState {
   syncInProgress: boolean;
   loading: boolean;
   initialized: boolean;
+  /**
+   * Set when the persisted wallet DB failed to deserialize (e.g. after a wasm
+   * upgrade that changed the internal postcard layout). Signals Dashboard to
+   * skip normal `setupAccount` bootstrap and drive a `fullResync` instead,
+   * which rebuilds the wallet from the stored seed/UFVK + birthday.
+   */
+  needsRescan: boolean;
 }
 
 type Action =
@@ -38,7 +45,8 @@ type Action =
   | { type: 'set-active-account'; payload: number }
   | { type: 'set-sync-in-progress'; payload: boolean }
   | { type: 'set-loading'; payload: boolean }
-  | { type: 'set-initialized'; payload: boolean };
+  | { type: 'set-initialized'; payload: boolean }
+  | { type: 'set-needs-rescan'; payload: boolean };
 
 const initialState: WebZjsState = {
   webWallet: null,
@@ -50,6 +58,7 @@ const initialState: WebZjsState = {
   syncInProgress: false,
   loading: false,
   initialized: false,
+  needsRescan: false,
 };
 
 function reducer(state: WebZjsState, action: Action): WebZjsState {
@@ -70,6 +79,8 @@ function reducer(state: WebZjsState, action: Action): WebZjsState {
       return { ...state, loading: action.payload };
     case 'set-initialized':
       return { ...state, initialized: action.payload };
+    case 'set-needs-rescan':
+      return { ...state, needsRescan: action.payload };
     default:
       return state;
   }
@@ -121,10 +132,19 @@ export const WebZjsProvider = ({ children }: { children: React.ReactNode }) => {
           wallet = new WebWallet('main', MAINNET_LIGHTWALLETD_PROXY, 1, 1, bytes);
         } catch (deserializeError) {
           console.warn(
-            'Failed to restore wallet from storage (possibly incompatible format after upgrade). Creating fresh wallet.',
-            deserializeError
+            'Failed to restore wallet from storage (wasm format change). Dropping stale bytes and flagging for rescan from birthday.',
+            deserializeError,
           );
-          toast.error('Wallet data incompatible after upgrade. Please re-sync your wallet.');
+          // Drop the undecodable bytes so a refresh mid-recovery doesn't
+          // re-enter this branch. The seed vault + stored birthday (held in
+          // SessionContext / IDB) are sufficient to reconstruct the wallet
+          // via fullResync — no user-visible data loss beyond sync time.
+          await del('wallet');
+          toast(
+            'Wallet storage format changed — resyncing from your birthday block. Your funds are safe.',
+            { duration: 6000 },
+          );
+          dispatch({ type: 'set-needs-rescan', payload: true });
           wallet = new WebWallet('main', MAINNET_LIGHTWALLETD_PROXY, 1, 1, null);
         }
       } else {

@@ -4,7 +4,7 @@ import {
   ProofGenerationKey,
   Pczt,
 } from '@chainsafe/webzjs-wallet';
-import { SigningBackend } from './SigningBackend';
+import { SigningBackend, ShieldStage } from './SigningBackend';
 
 /**
  * Invoke one of the Ycash snap's RPC methods. Supplied by `useSigningBackend`
@@ -158,18 +158,28 @@ export class SnapSigningBackend implements SigningBackend {
     return new Uint8Array();
   }
 
-  async shieldAll(wallet: WebWallet, accountId: number): Promise<void> {
+  async shieldAll(
+    wallet: WebWallet,
+    accountId: number,
+    onStage?: (stage: ShieldStage) => void,
+  ): Promise<void> {
     // pczt_shield is the PCZT-shaped counterpart to wallet.shield(): it
     // proposes "shield every transparent UTXO into Sapling" and returns
     // the unsigned PCZT. From there the flow is identical to sendShielded.
+    onStage?.('creating');
     const unsigned = await wallet.pczt_shield(accountId);
+    onStage?.('awaiting-pgk');
     const pgk = await this.fetchProofGenerationKey();
+    onStage?.('proving');
     const proven = await wallet.pczt_prove(unsigned, pgk);
+    onStage?.('awaiting-sig');
     const signed = await this.signPcztInSnap(
       proven,
       '(shield to Sapling)',
       '(all transparent)',
     );
+    onStage?.('broadcasting');
     await wallet.pczt_send(signed);
+    onStage?.('done');
   }
 }

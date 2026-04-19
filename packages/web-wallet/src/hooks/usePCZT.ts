@@ -1,5 +1,5 @@
 import { useWebZjsContext } from '../context/WebzjsContext';
-import { yecToZats } from '../utils';
+import { toFriendlyError, yecToZats } from '../utils';
 import { useWebZjsActions } from './useWebzjsActions';
 import { useSigningBackend } from './signing/useSigningBackend';
 import { useState } from 'react';
@@ -75,27 +75,9 @@ export const usePczt = (): IUsePczt => {
       setPcztTransferStatus(PcztTransferStatus.SEND_SUCCESSFUL);
       await syncStateWithWallet();
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : String(error);
       console.error('Transaction error:', error);
-
-      let errorMessage = rawMessage;
-      if (rawMessage.includes('InsufficientFunds')) {
-        const availableMatch = rawMessage.match(/available:\s*Zatoshis\((\d+)\)/);
-        const requiredMatch = rawMessage.match(/required:\s*Zatoshis\((\d+)\)/);
-        if (availableMatch && requiredMatch) {
-          const available = parseInt(availableMatch[1]);
-          const required = parseInt(requiredMatch[1]);
-          const availableYec = (available / 100_000_000).toFixed(8);
-          const requiredYec = (required / 100_000_000).toFixed(8);
-          const shortfallYec = ((required - available) / 100_000_000).toFixed(8);
-          errorMessage = `Insufficient balance. Available: ${availableYec} YEC, Required: ${requiredYec} YEC (includes fees). You need ${shortfallYec} YEC more to complete this transaction.`;
-        } else {
-          errorMessage =
-            'Insufficient balance. Your wallet may still be syncing — wait for sync to complete or try a Full Resync from the Account Summary page.';
-        }
-      }
-
-      setLastError(errorMessage);
+      const friendly = toFriendlyError(error, 'send this transaction');
+      setLastError(friendly.message);
       setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
     }
   };
@@ -120,9 +102,9 @@ export const usePczt = (): IUsePczt => {
       setPcztTransferStatus(PcztTransferStatus.SEND_SUCCESSFUL);
       await syncStateWithWallet();
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : String(error);
       console.error('Shielding error:', error);
-      setLastError(rawMessage);
+      const friendly = toFriendlyError(error, 'shield your balance');
+      setLastError(friendly.message);
       setPcztTransferStatus(PcztTransferStatus.SEND_ERROR);
     }
   };

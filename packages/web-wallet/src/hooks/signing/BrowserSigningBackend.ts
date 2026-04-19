@@ -1,5 +1,5 @@
 import { WebWallet } from '@chainsafe/webzjs-wallet';
-import { SigningBackend } from './SigningBackend';
+import { SigningBackend, ShieldStage } from './SigningBackend';
 
 /**
  * Browser-resident signing backend. Holds a BIP39 mnemonic in memory for the
@@ -53,8 +53,16 @@ export class BrowserSigningBackend implements SigningBackend {
     return txids;
   }
 
-  async shieldAll(wallet: WebWallet, accountId: number): Promise<void> {
-    // `wallet.shield` handles propose → prove (in a worker) → broadcast.
+  async shieldAll(
+    wallet: WebWallet,
+    accountId: number,
+    onStage?: (stage: ShieldStage) => void,
+  ): Promise<void> {
+    // `wallet.shield` is a single opaque call — we can't split it into PCZT
+    // stages, and there's no user approval step (the seed is in memory), so
+    // collapse the whole thing into a single "broadcasting" tick.
+    onStage?.('broadcasting');
     await wallet.shield(accountId, this.mnemonic, this.accountHdIndex);
+    onStage?.('done');
   }
 }
