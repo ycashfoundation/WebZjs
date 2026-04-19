@@ -4,12 +4,12 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'packages/snap/snap.manifest.json'
+      - 'packages/snap-ycash/snap.manifest.json'
       - '.github/workflows/check-snap-allowed-origins.yml'
   push:
     branches: [ main ]
     paths:
-      - 'packages/snap/snap.manifest.json'
+      - 'packages/snap-ycash/snap.manifest.json'
 
 jobs:
   check-allowed-origins:
@@ -29,8 +29,8 @@ jobs:
             sudo apt-get install -y jq
           fi
 
-          expected='["https://webzjs.chainsafe.dev"]'
-          MANIFEST="packages/snap/snap.manifest.json"
+          expected='["https://wallet.ycash.xyz"]'
+          MANIFEST="packages/snap-ycash/snap.manifest.json"
 
           if [ ! -f "$MANIFEST" ]; then
             echo "::error title=Missing file::$MANIFEST not found"

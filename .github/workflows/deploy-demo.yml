@@ -35,7 +35,7 @@ jobs:
       - name: Build
         run: yarn web-wallet:build
         env: 
-          SNAP_ORIGIN: npm:@chainsafe/webzjs-zcash-snap
+          SNAP_ORIGIN: npm:@ycashfoundation/webzjs-ycash-snap
 
       - name: Get short SHA
         id: sha
