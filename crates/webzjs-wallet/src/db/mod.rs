@@ -6,3 +6,6 @@
 
 #[cfg(feature = "sqlite-db")]
 pub mod sqlite;
+
+#[cfg(feature = "sqlite-db")]
+pub mod worker;
