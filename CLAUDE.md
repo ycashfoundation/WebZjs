@@ -22,6 +22,7 @@ The `packages/` output directories for the wasm crates (`packages/webzjs-wallet`
 - Zcash deps are pinned to the `ChainSafe/librustzcash-nu61` fork (branch `feat/snap-nu61`). Any `librustzcash` upstream change must be ported to that fork first.
 - `wasm-bindgen` is **pinned to `=0.2.100`** intentionally — newer versions break `TextEncoder.encodeInto` inside the MetaMask Snap sandbox. Don't bump it casually.
 - Node ≥ 18.18, Yarn 4.5.1 (via `packageManager`), `just` as the task runner, `wasm-pack`, clang 17+ (needed for Zcash crypto deps).
+- On macOS, Apple's bundled `clang` can't target `wasm32-unknown-unknown`. The justfile auto-detects Homebrew LLVM (`/opt/homebrew/opt/llvm/bin/{clang,llvm-ar}`) and exports `CC_wasm32_unknown_unknown` / `AR_wasm32_unknown_unknown` accordingly. If you're invoking `wasm-pack` directly (not through `just`), export these yourself, or `secp256k1-sys` will fail to compile with `No available targets are compatible with triple "wasm32-unknown-unknown"`.
 
 ## Common commands
 

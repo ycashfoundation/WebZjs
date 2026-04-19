@@ -1,6 +1,16 @@
 default:
     just --list
 
+# The Zcash crypto deps (secp256k1-sys in particular) invoke `cc` to compile
+# C sources for the wasm target. Apple's bundled `clang` can't target
+# wasm32-unknown-unknown; we need a full LLVM toolchain. Homebrew's `llvm`
+# formula ships the right compiler/archiver pair. Export those here so a
+# plain `just build` works out of the box on macOS without callers needing
+# to remember the env-var incantation. Falls back to `cc`/`ar` on systems
+# where LLVM is the default (most Linux distros), so this is a no-op there.
+export CC_wasm32_unknown_unknown := env_var_or_default("CC_wasm32_unknown_unknown", if path_exists("/opt/homebrew/opt/llvm/bin/clang") == "true" { "/opt/homebrew/opt/llvm/bin/clang" } else { "clang" })
+export AR_wasm32_unknown_unknown := env_var_or_default("AR_wasm32_unknown_unknown", if path_exists("/opt/homebrew/opt/llvm/bin/llvm-ar") == "true" { "/opt/homebrew/opt/llvm/bin/llvm-ar" } else { "llvm-ar" })
+
 build:
     just build-wallet
     just build-keys
