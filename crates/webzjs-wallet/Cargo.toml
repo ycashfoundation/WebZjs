@@ -22,7 +22,7 @@ multicore = ["zcash_proofs/multicore", "zcash_primitives/multicore", "zcash_clie
 wasm = ["console_error_panic_hook", "dep:tracing-web"]
 wasm-parallel = ["wasm", "wasm-bindgen-rayon", "multicore"]
 native = ["tonic/channel", "tonic/gzip", "tonic/tls-webpki-roots", "tokio/macros", "tokio/rt", "tokio/rt-multi-thread"]
-sqlite-db = ["dep:zcash_client_sqlite"]
+sqlite-db = ["dep:zcash_client_sqlite", "dep:rusqlite", "dep:sqlite-wasm-rs", "dep:rand"]
 console_error_panic_hook = ["dep:console_error_panic_hook"]
 no-bundler = ["wasm-bindgen-rayon?/no-bundler", "wasm_thread/no-bundler"]
 
@@ -75,6 +75,14 @@ tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 # Used in Native tests
 tokio.workspace = true
 zcash_client_sqlite = { workspace = true, optional = true }
+rusqlite = { version = "0.37", optional = true }
+rand = { version = "0.8", optional = true }
+# sqlite-wasm-rs is only consumed on wasm32 — rusqlite already pulls it in
+# as an FFI backend via our fork, but our own `db::sqlite` module calls the
+# `sahpool_vfs::install` entry point directly, so declare it explicitly here.
+# Inherits the `precompiled` feature selection from rusqlite-ycash's wasm
+# target block.
+sqlite-wasm-rs = { version = "0.4", optional = true, default-features = false, features = ["precompiled"] }
 
 getrandom = { workspace = true, features = ["js"] }
 thiserror.workspace = true

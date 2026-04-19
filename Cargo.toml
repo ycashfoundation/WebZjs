@@ -52,7 +52,7 @@ tonic = { version = "0.14", default-features = false }
 
 
 # Used in Native tests
-zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "64527bd3", default-features = false, features = ["unstable", "orchard"] }
+zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "64527bd3", default-features = false, features = ["unstable", "orchard", "transparent-inputs"] }
 
 getrandom = { version = "0.2", features = ["js"] }
 thiserror = "1.0.63"
@@ -94,6 +94,29 @@ byte-unit = { version = "5.1.4", features = ["byte"] }
 # streaming RPC returns zero messages. The `feat/trailers-only` branch in the
 # ycashfoundation fork accepts the trailers-only encoding.
 tonic-web-wasm-client = { git = "https://github.com/ycashfoundation/tonic-web-wasm-client", rev = "82944c0" }
+
+# Fork of rusqlite 0.37.0 with upstream PR #1769 cherry-picked to add
+# wasm32-unknown-unknown support via the sqlite-wasm-rs FFI backend. Required
+# by zcash_client_sqlite when targeting the browser. Kept as a local path
+# during prototyping — flip to a pushed git ref before shipping.
+rusqlite = { path = "../rusqlite-ycash" }
+
+# Redirect the ycashfoundation/librustzcash-nu61 git dep (pinned at rev
+# 64527bd3 in workspace.dependencies above) to the local feat/sqlite-wasm
+# working tree, which has wasm-compatible target-conditional rusqlite features
+# wired into zcash_client_sqlite. Flip to a pushed git rev before shipping.
+[patch."https://github.com/ycashfoundation/librustzcash-nu61"]
+zcash_keys = { path = "../librustzcash-ycash/zcash_keys" }
+zcash_client_backend = { path = "../librustzcash-ycash/zcash_client_backend" }
+zcash_client_memory = { path = "../librustzcash-ycash/zcash_client_memory" }
+zcash_client_sqlite = { path = "../librustzcash-ycash/zcash_client_sqlite" }
+zcash_primitives = { path = "../librustzcash-ycash/zcash_primitives" }
+zcash_transparent = { path = "../librustzcash-ycash/zcash_transparent" }
+zcash_address = { path = "../librustzcash-ycash/components/zcash_address" }
+zcash_proofs = { path = "../librustzcash-ycash/zcash_proofs" }
+zip321 = { path = "../librustzcash-ycash/components/zip321" }
+zcash_protocol = { path = "../librustzcash-ycash/components/zcash_protocol" }
+pczt = { path = "../librustzcash-ycash/pczt" }
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(wasm_bindgen)', 'cfg(wasm_bindgen_unstable_test_coverage)'] }

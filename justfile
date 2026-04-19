@@ -59,6 +59,12 @@ alias cw := check-wasm
 check-wasm:
     cargo check --no-default-features --features="wasm-parallel,no-bundler" --target=wasm32-unknown-unknown
 
+# Like check-wasm but with the in-progress `sqlite-db` backend pulled in
+# (forked rusqlite + sqlite-wasm-rs OPFS). Useful while the SQLite migration
+# is still gated behind the feature flag.
+check-wasm-sqlite:
+    cargo check --no-default-features --features="wasm-parallel,no-bundler,sqlite-db" --target=wasm32-unknown-unknown
+
 # run a local proxy to the mainnet lightwalletd server on port 443
 run-proxy:
     grpcwebproxy  --backend_max_call_recv_msg_size=10485760 --server_http_max_write_timeout=1000s --server_http_max_read_timeout=1000s \

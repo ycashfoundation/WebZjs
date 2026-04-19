@@ -6,6 +6,7 @@
 #[cfg(feature = "wasm")]
 pub mod bindgen;
 
+pub mod db;
 mod error;
 pub mod init;
 pub mod validation;
