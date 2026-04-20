@@ -210,6 +210,28 @@ impl UnifiedSpendingKey {
         }
     }
 
+    /// The Sapling `ProofGenerationKey` for this account's **internal**
+    /// ZIP-32 scope — the scope used for change outputs and shield-self
+    /// sends. Paired with [`Self::to_sapling_proof_generation_key`]
+    /// (external scope) so the dapp can prove and sign spends of either
+    /// class of note without the snap having to re-derive per-spend.
+    ///
+    /// Sapling change notes and shield-self outputs land in the internal
+    /// scope. Spending them requires the internal-scope `(ak, nsk)`, not
+    /// the external pair — using the wrong scope makes the pczt Verifier
+    /// fail with `WrongFvkForNote` (the external `ivk` produces a
+    /// different `pk_d` from the stored diversifier than the note's own).
+    pub fn to_sapling_internal_proof_generation_key(&self) -> ProofGenerationKey {
+        ProofGenerationKey {
+            inner: self
+                .inner
+                .sapling()
+                .derive_internal()
+                .expsk
+                .proof_generation_key(),
+        }
+    }
+
     /// Serialize the Sapling `ExtendedFullViewingKey` as its 169-byte ZIP-32
     /// binary encoding (`depth ‖ parent_fvk_tag ‖ child_index ‖ chain_code ‖
     /// fvk(ak‖nk‖ovk) ‖ dk`).

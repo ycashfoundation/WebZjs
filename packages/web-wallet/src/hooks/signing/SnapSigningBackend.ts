@@ -100,18 +100,35 @@ export class SnapSigningBackend implements SigningBackend {
   }
 
   /**
-   * Fetch the Sapling proof-generation key from the snap. The snap prompts
-   * the user before releasing it; the returned object carries ak ‖ nsk in a
-   * form the wasm Prover can consume.
+   * Fetch the Sapling proof-generation keys (external + internal scope)
+   * from the snap. The snap prompts the user once and derives both
+   * scopes from the same seed in a single dialog. Both are needed
+   * because a PCZT can spend notes in either scope (external for
+   * incoming payments, internal for change and shield-self outputs),
+   * and the Prover has to use the matching `(ak, nsk)` per spend.
    */
-  private async fetchProofGenerationKey(): Promise<ProofGenerationKey> {
-    const pgkHex = await this.invokeSnap<string>('getProofGenerationKey');
-    if (!/^[0-9a-fA-F]{128}$/.test(pgkHex)) {
+  private async fetchProofGenerationKeys(): Promise<{
+    external: ProofGenerationKey;
+    internal: ProofGenerationKey;
+  }> {
+    const { externalHex, internalHex } = await this.invokeSnap<{
+      externalHex: string;
+      internalHex: string;
+    }>('getProofGenerationKey');
+    if (!/^[0-9a-fA-F]{128}$/.test(externalHex)) {
       throw new Error(
-        `Snap returned an invalid proof-generation key (expected 64 bytes hex): ${pgkHex}`,
+        `Snap returned an invalid external proof-generation key (expected 64 bytes hex): ${externalHex}`,
       );
     }
-    return ProofGenerationKey.from_bytes(hexToBytes(pgkHex));
+    if (!/^[0-9a-fA-F]{128}$/.test(internalHex)) {
+      throw new Error(
+        `Snap returned an invalid internal proof-generation key (expected 64 bytes hex): ${internalHex}`,
+      );
+    }
+    return {
+      external: ProofGenerationKey.from_bytes(hexToBytes(externalHex)),
+      internal: ProofGenerationKey.from_bytes(hexToBytes(internalHex)),
+    };
   }
 
   private async signPcztInSnap(
@@ -139,12 +156,15 @@ export class SnapSigningBackend implements SigningBackend {
     // 1. Create the unsigned, unproven PCZT from the active account.
     const unsigned = await wallet.pczt_create(accountId, toAddress, amountZats);
 
-    // 2. Ask the snap for the Sapling PGK (user approval #1).
-    const pgk = await this.fetchProofGenerationKey();
+    // 2. Ask the snap for the Sapling PGKs (user approval #1). Returns
+    //    both external and internal scope; the dapp picks per spend.
+    const pgks = await this.fetchProofGenerationKeys();
 
-    // 3. Prove locally. pczt_prove injects the PGK into each non-dummy
-    //    spend, then runs Groth16 in a spawned worker.
-    const proven = await wallet.pczt_prove(unsigned, pgk);
+    // 3. Prove locally. pczt_prove injects the correct scope's PGK into
+    //    each non-dummy spend (external for incoming-payment notes,
+    //    internal for change / shield-self outputs), then runs Groth16
+    //    in the DB worker.
+    const proven = await wallet.pczt_prove(unsigned, pgks.external, pgks.internal);
 
     // 4. Snap signs using its USK (user approval #2). For v4, sighash is
     //    computed over the proofs we just inserted.
@@ -169,9 +189,12 @@ export class SnapSigningBackend implements SigningBackend {
     onStage?.('creating');
     const unsigned = await wallet.pczt_shield(accountId);
     onStage?.('awaiting-pgk');
-    const pgk = await this.fetchProofGenerationKey();
+    const pgks = await this.fetchProofGenerationKeys();
     onStage?.('proving');
-    const proven = await wallet.pczt_prove(unsigned, pgk);
+    // Shield transactions have no Sapling *inputs* (transparent → Sapling),
+    // so the internal PGK is only used here for symmetry / future spend
+    // support. Passing both is harmless.
+    const proven = await wallet.pczt_prove(unsigned, pgks.external, pgks.internal);
     onStage?.('awaiting-sig');
     const signed = await this.signPcztInSnap(
       proven,

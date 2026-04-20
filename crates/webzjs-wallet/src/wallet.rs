@@ -731,40 +731,88 @@ where
     }
 
     ///
-    /// Prove a PCZT
+    /// Prove a PCZT.
     ///
+    /// Sapling has two ZIP-32 scopes per account — external (for
+    /// incoming payments) and internal (for change and shield-self
+    /// outputs). The two scopes have different `(ak, nsk)`, so
+    /// each Sapling spend has to be proved under the scope that
+    /// actually owns the note it's spending. `sapling_internal_pgk`
+    /// carries the internal-scope PGK; when provided, each non-dummy
+    /// spend is inspected and the PGK whose external/internal `ivk`
+    /// actually produces the spend's recipient address is injected.
+    ///
+    /// If only `sapling_proof_gen_key` is provided (legacy single-PGK
+    /// API), it's injected on every non-dummy spend — which works when
+    /// every spent note is external-scope, and only fails once a
+    /// shield-self change note lands in the spendable balance. New
+    /// callers should always supply both.
     pub async fn pczt_prove(
         &self,
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
+        sapling_internal_pgk: Option<ProofGenerationKey>,
     ) -> Result<Pczt, Error> {
-        // Add Sapling proof generation key.
         // TODO: Check to see if there is any sapling in here in the first place
-        let pczt = if let Some(sapling_proof_gen_key) = sapling_proof_gen_key {
+        let pczt = if let Some(external_pgk) = sapling_proof_gen_key {
+            let internal_pgk = sapling_internal_pgk;
+
+            // Pre-compute external/internal viewing keys so scope detection
+            // below doesn't re-derive for every spend. `to_viewing_key`
+            // returns a `ViewingKey { ak, nk }` and its `ivk` is
+            // deterministic in those — same as what Sapling uses to derive
+            // `pk_d` from a diversifier, which is how we'll match recipients.
+            let external_vk = external_pgk.to_viewing_key();
+            let internal_vk = internal_pgk.as_ref().map(|p| p.to_viewing_key());
+
             Updater::new(pczt)
                 .update_sapling_with(|mut updater| {
-                    let non_dummy_spends = updater
-                        .bundle()
-                        .spends()
-                        .iter()
-                        .enumerate()
-                        // Dummy spends will already have a proof generation key.
-                        .filter(|(_, spend)| spend.proof_generation_key().is_none())
-                        .map(|(index, spend)| {
-                            (
-                                index,
-                                spend
-                                    .zip32_derivation()
-                                    .as_ref()
-                                    .map(|d| (*d.seed_fingerprint(), d.derivation_path().clone())),
-                            )
-                        })
-                        .collect::<Vec<_>>();
+                    let spend_count = updater.bundle().spends().len();
+                    for index in 0..spend_count {
+                        // Skip spends that already have a PGK; those are
+                        // either dummy spends (Constructor baked in a PGK
+                        // to satisfy invariants) or spends a caller
+                        // explicitly populated via Updater earlier.
+                        if updater.bundle().spends()[index]
+                            .proof_generation_key()
+                            .is_some()
+                        {
+                            continue;
+                        }
 
-                    // Assume all non-dummy spent notes are from the same account.
-                    for (index, _) in non_dummy_spends {
+                        let recipient = *updater.bundle().spends()[index].recipient();
+                        let pgk_to_inject = match (&internal_pgk, &internal_vk, recipient) {
+                            // Two scopes available: decide per-spend by
+                            // checking which ivk owns the note's
+                            // recipient. If the external ivk produces
+                            // the recipient's pk_d for its diversifier,
+                            // it's external-scope; otherwise internal.
+                            (Some(int_pgk), Some(int_vk), Some(recipient)) => {
+                                let diversifier = *recipient.diversifier();
+                                if external_vk.to_payment_address(diversifier) == Some(recipient) {
+                                    external_pgk.clone()
+                                } else if int_vk.to_payment_address(diversifier) == Some(recipient)
+                                {
+                                    int_pgk.clone()
+                                } else {
+                                    // Neither scope recognises this
+                                    // recipient. Shouldn't happen for a
+                                    // correctly-constructed PCZT over an
+                                    // account we own; fall back to
+                                    // external so the caller sees the
+                                    // eventual Signer/Verifier failure
+                                    // rather than a silent mis-inject.
+                                    external_pgk.clone()
+                                }
+                            }
+                            // Legacy single-PGK path: inject external
+                            // everywhere. Only works when every spend is
+                            // external-scope.
+                            _ => external_pgk.clone(),
+                        };
+
                         updater.update_spend_with(index, |mut spend_updater| {
-                            spend_updater.set_proof_generation_key(sapling_proof_gen_key.clone())
+                            spend_updater.set_proof_generation_key(pgk_to_inject)
                         })?;
                     }
 

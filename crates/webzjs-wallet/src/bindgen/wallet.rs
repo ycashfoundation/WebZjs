@@ -218,14 +218,23 @@ impl WebWallet {
     /// worker (a Web Worker, where `Atomics.wait` is available to rayon);
     /// no separate prove worker is spawned. Expect tens of seconds of CPU
     /// time; render progress UI around the call.
+    ///
+    /// `sapling_proof_gen_key` is the external-scope Sapling PGK (as
+    /// before). `sapling_internal_pgk`, when supplied, is the
+    /// internal-scope PGK — needed to spend change and shield-self
+    /// outputs, which live in Sapling's internal ZIP-32 scope. The
+    /// wallet injects the correct PGK per spend based on which scope's
+    /// ivk actually owns the note.
     pub async fn pczt_prove(
         &self,
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
+        sapling_internal_pgk: Option<ProofGenerationKey>,
     ) -> Result<Pczt, Error> {
         let pgk: Option<::sapling::ProofGenerationKey> = sapling_proof_gen_key.map(Into::into);
+        let int_pgk: Option<::sapling::ProofGenerationKey> = sapling_internal_pgk.map(Into::into);
         self.handle
-            .pczt_prove(pczt, pgk)
+            .pczt_prove(pczt, pgk, int_pgk)
             .await
             .map_err(err_to_error)
     }

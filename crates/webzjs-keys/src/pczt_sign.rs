@@ -50,6 +50,15 @@ pub async fn pczt_sign_inner(
         },
         Sapling {
             index: usize,
+            /// Sapling has two ZIP-32 scopes per account — external (for
+            /// incoming payments) and internal (for change and
+            /// shield-self outputs). They have different `ak`, so the
+            /// signer has to use the matching `ask` or the PCZT
+            /// verifier trips with `WrongFvkForNote`. We determine the
+            /// scope by comparing the spend's recipient against the
+            /// `pk_d` the external ivk produces for its diversifier —
+            /// if they match, external; otherwise internal.
+            is_internal: bool,
         },
         Transparent {
             index: usize,
@@ -57,6 +66,10 @@ pub async fn pczt_sign_inner(
             address_index: NonHardenedChildIndex,
         },
     }
+
+    // Pre-compute external `ak` bytes for quick scope lookup below.
+    let external_ak_bytes = usk.sapling().expsk.proof_generation_key().ak.to_bytes();
+
     let mut keys = BTreeMap::<zip32::AccountId, Vec<KeyRef>>::new();
     let pczt = Verifier::new(pczt)
         .with_orchard::<Infallible, _>(|bundle| {
@@ -91,9 +104,25 @@ pub async fn pczt_sign_inner(
                         )
                     })
                 {
+                    // The spend's `proof_generation_key` was injected by
+                    // the dapp's Prover step; its `ak` identifies the
+                    // scope the dapp intends us to sign with. For
+                    // correctly-constructed PCZTs, this matches the
+                    // note's owning scope — i.e. `external_ak` for
+                    // normal spends, `internal_ak` for change/shield-self
+                    // outputs. Default to external if pgk is absent
+                    // (legacy PCZTs and dummy spends). The legacy behavior
+                    // is preserved because a missing pgk means the dapp
+                    // never injected one, which only happens when the
+                    // caller is still on the single-PGK API.
+                    let is_internal = spend
+                        .proof_generation_key()
+                        .as_ref()
+                        .map(|pgk| pgk.ak.to_bytes() != external_ak_bytes)
+                        .unwrap_or(false);
                     keys.entry(account_index)
                         .or_default()
-                        .push(KeyRef::Sapling { index });
+                        .push(KeyRef::Sapling { index, is_internal });
                 }
             }
             Ok(())
@@ -144,15 +173,29 @@ pub async fn pczt_sign_inner(
                             ))
                         })?;
                 }
-                KeyRef::Sapling { index } => {
-                    signer
-                        .sign_sapling(index, &usk.sapling().expsk.ask)
-                        .map_err(|e| {
-                            Error::PcztSign(format!(
-                                "Failed to sign Sapling spend {index}: {:?}",
-                                e
-                            ))
-                        })?;
+                KeyRef::Sapling { index, is_internal } => {
+                    // Sapling ZIP-32 internal scope uses a distinct `ask`
+                    // derived via `derive_internal()`. Spending a change
+                    // note with the external `ask` produces an `rk` that
+                    // doesn't match the one the Constructor baked into
+                    // the PCZT (which was randomised from the note's own
+                    // internal `ak`), so Signer would reject it with
+                    // `WrongSpendAuthorizingKey`. Picking the right scope
+                    // here is sufficient only when the Prover also
+                    // injected the matching `pgk`; the companion fix on
+                    // the dapp-side pczt_prove takes care of that.
+                    let ask = if is_internal {
+                        usk.sapling().derive_internal().expsk.ask.clone()
+                    } else {
+                        usk.sapling().expsk.ask.clone()
+                    };
+                    signer.sign_sapling(index, &ask).map_err(|e| {
+                        Error::PcztSign(format!(
+                            "Failed to sign Sapling spend {index} ({} scope): {:?}",
+                            if is_internal { "internal" } else { "external" },
+                            e
+                        ))
+                    })?;
                 }
                 KeyRef::Transparent {
                     index,

@@ -61,6 +61,13 @@ pub type WorkerWallet = Wallet<WorkerWalletDb, Client>;
 ///
 /// Intentionally does not derive `Debug` — [`webzjs_keys::SeedFingerprint`]
 /// and [`pczt::Pczt`] don't, and the in-process channel doesn't need it.
+//
+// `clippy::large_enum_variant` would normally suggest boxing the larger
+// variants (PCZT variants carry a whole serialized tx). We intentionally
+// don't box: Envelopes are short-lived, the enum lives on the stack of
+// one call at a time, and the boxing would push every variant through an
+// extra heap round-trip for a zero-copy transport. Silence the lint.
+#[allow(clippy::large_enum_variant)]
 pub enum Request {
     /// Liveness probe. The worker answers [`Response::Pong`] with the same
     /// nonce so callers can match a reply to their request in flight.
@@ -109,6 +116,11 @@ pub enum Request {
     PcztProve {
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
+        /// Sapling internal-scope PGK — required in addition to the
+        /// external-scope one when the PCZT spends change / shield-self
+        /// outputs. See `Wallet::pczt_prove` for the scope-selection
+        /// logic.
+        sapling_internal_pgk: Option<ProofGenerationKey>,
     },
     PcztSend {
         pczt: Pczt,
@@ -434,11 +446,13 @@ impl DbWorkerHandle {
         &self,
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
+        sapling_internal_pgk: Option<ProofGenerationKey>,
     ) -> Result<Pczt, WorkerError> {
         match self
             .send(Request::PcztProve {
                 pczt,
                 sapling_proof_gen_key,
+                sapling_internal_pgk,
             })
             .await?
         {
@@ -822,10 +836,11 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
         Request::PcztProve {
             pczt,
             sapling_proof_gen_key,
+            sapling_internal_pgk,
         } => {
             let pczt_inner: ::pczt::Pczt = pczt.into();
             let proven = wallet
-                .pczt_prove(pczt_inner, sapling_proof_gen_key)
+                .pczt_prove(pczt_inner, sapling_proof_gen_key, sapling_internal_pgk)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(Response::Pczt(proven.into()))
