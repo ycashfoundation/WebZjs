@@ -342,6 +342,17 @@ impl WebWallet {
     pub async fn reset(&self) -> Result<(), Error> {
         self.handle.reset().await.map_err(err_to_error)
     }
+
+    /// Return the u32 account handles for every account in the wallet.
+    /// More reliable than reading `get_wallet_summary().account_balances`
+    /// during bootstrap: the wallet summary returns `None` before the
+    /// first sync populates `chain_tip_height`, which would miss a
+    /// just-imported account. The JS bootstrap uses this to decide
+    /// between "pick up existing account" and "import fresh" without
+    /// racing the first sync.
+    pub async fn get_account_ids(&self) -> Result<Vec<u32>, Error> {
+        self.handle.get_account_ids().await.map_err(err_to_error)
+    }
 }
 
 /// Convert a [`WorkerError`] to the bindgen-wide [`crate::error::Error`].

@@ -169,6 +169,13 @@ pub enum Request {
     /// `reset` then re-imports the account and re-runs sync from the
     /// birthday height.
     Reset,
+    /// Enumerate the account IDs present in the wallet database. The
+    /// UI's bootstrap calls this before `setupAccount` to decide whether
+    /// to re-import or pick up an existing account;
+    /// `get_wallet_summary` isn't sufficient because it returns `None`
+    /// before the first sync populates `chain_tip_height`, which would
+    /// miss a just-imported account.
+    GetAccountIds,
 }
 
 /// A reply from the DB worker.
@@ -187,6 +194,7 @@ pub enum Response {
     Address(String),
     LatestBlock(u64),
     OptionalHeight(Option<u32>),
+    AccountIds(Vec<u32>),
     Unit,
     Pczt(Pczt),
     TxIds(Vec<[u8; 32]>),
@@ -520,6 +528,13 @@ impl DbWorkerHandle {
     pub async fn reset(&self) -> Result<(), WorkerError> {
         match self.send(Request::Reset).await? {
             Response::Unit => Ok(()),
+            _ => Err(WorkerError::UnexpectedResponse),
+        }
+    }
+
+    pub async fn get_account_ids(&self) -> Result<Vec<u32>, WorkerError> {
+        match self.send(Request::GetAccountIds).await? {
+            Response::AccountIds(ids) => Ok(ids),
             _ => Err(WorkerError::UnexpectedResponse),
         }
     }
@@ -920,6 +935,14 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
 
             Ok(Response::TxIds(
                 txids.into_iter().map(|id| *id.as_ref()).collect(),
+            ))
+        }
+
+        Request::GetAccountIds => {
+            let db = wallet.db.read().await;
+            let ids = db.get_account_ids().map_err(|e| e.to_string())?;
+            Ok(Response::AccountIds(
+                ids.into_iter().map(account_uuid_to_u32).collect(),
             ))
         }
 

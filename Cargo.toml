@@ -33,17 +33,17 @@ tokio_with_wasm = { version = "0.7.1", features = ["rt", "rt-multi-thread", "syn
 ## Zcash dependencies - Using ycashfoundation/librustzcash-nu61 fork, which forks
 ## ChainSafe's NU6.1 fork and adds Ycash consensus support (YcashMainNetwork,
 ## NetworkUpgrade::Ycash, Y-branch IDs).
-zcash_keys = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", features = ["transparent-inputs", "orchard", "sapling", "unstable"] }
-zcash_client_backend = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", default-features = false, features = ["sync", "lightwalletd-tonic", "orchard"] }
-zcash_client_memory = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", features = ["orchard", "transparent-inputs"] }
-zcash_primitives = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42" }
-zcash_transparent = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", default-features = false }
-zcash_address = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42" }
-zcash_proofs = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", default-features = false, features = ["multicore"] }
-zip321 = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42" }
+zcash_keys = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", features = ["transparent-inputs", "orchard", "sapling", "unstable"] }
+zcash_client_backend = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", default-features = false, features = ["sync", "lightwalletd-tonic", "orchard"] }
+zcash_client_memory = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12" }
+zcash_transparent = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", default-features = false }
+zcash_address = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12" }
+zcash_proofs = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", default-features = false, features = ["multicore"] }
+zip321 = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12" }
 zip32 = { version = "0.2" }
-zcash_protocol = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", default-features = false }
-pczt = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", default-features = false, features = ["orchard", "sapling", "transparent"] }
+zcash_protocol = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", default-features = false }
+pczt = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", default-features = false, features = ["orchard", "sapling", "transparent"] }
 sapling = { package = "sapling-crypto", version = "0.6", default-features = false }
 bip32 = { version = "=0.6.0-pre.1", default-features = false, features = ["alloc"] }
 ## gRPC Web dependencies
@@ -52,7 +52,7 @@ tonic = { version = "0.14", default-features = false }
 
 
 # Used in Native tests
-zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "d4aaa2ab3bb7ad4eda2182837b6712b25edadb42", default-features = false, features = ["unstable", "orchard", "transparent-inputs", "serde"] }
+zcash_client_sqlite = { git = "https://github.com/ycashfoundation/librustzcash-nu61", rev = "1ff98a459f1d3fe10111686ebf7d1e0b7cb40c12", default-features = false, features = ["unstable", "orchard", "transparent-inputs", "serde"] }
 
 getrandom = { version = "0.2", features = ["js"] }
 thiserror = "1.0.63"

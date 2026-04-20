@@ -118,13 +118,20 @@ export function useWebZjsActions(): WebzjsActions {
       // Was a prior account restored from the persisted OPFS DB? If so
       // just mark it active — the WebWallet already has the account
       // materialized internally.
-      const existingSummary = await state.webWallet.get_wallet_summary();
-      if (
-        existingSummary &&
-        existingSummary.account_balances.length > 0
-      ) {
-        const existingAccountId = existingSummary.account_balances[0][0];
-        dispatch({ type: 'set-active-account', payload: existingAccountId });
+      //
+      // We intentionally read account IDs directly rather than from
+      // `get_wallet_summary().account_balances` because the wallet
+      // summary returns `None` before the first sync populates
+      // `chain_tip_height`. On a fresh reload of a DB that has an
+      // account but hasn't synced yet, checking the summary would
+      // miss the account and trigger a duplicate-import attempt that
+      // errors with "account already exists".
+      const existingAccountIds = await state.webWallet.get_account_ids();
+      if (existingAccountIds.length > 0) {
+        dispatch({
+          type: 'set-active-account',
+          payload: existingAccountIds[0],
+        });
         await syncStateWithWallet();
         return;
       }
