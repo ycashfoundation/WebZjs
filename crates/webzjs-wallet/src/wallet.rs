@@ -49,6 +49,7 @@ use zcash_client_memory::MemBlockCache;
 use zcash_keys::keys::{UnifiedFullViewingKey, UnifiedSpendingKey};
 use zcash_primitives::transaction::fees::FeeRule;
 use zcash_primitives::transaction::TxId;
+use zcash_protocol::memo::{Memo, MemoBytes};
 use zcash_protocol::ShieldedProtocol;
 
 use zcash_client_backend::sync::run;
@@ -63,6 +64,20 @@ const BATCH_SIZE: u32 = 10000; // Smaller batches = shorter CPU bursts with I/O 
 /// constant that signals what's the minimum transparent balance for proposing a
 /// shielding transaction
 const SHIELDING_THRESHOLD: Zatoshis = Zatoshis::const_from_u64(100000);
+
+/// Turn a user-supplied memo string into the ZIP-302 `MemoBytes`
+/// representation expected by `Payment::new`. Empty-string maps to `None`
+/// so the caller can pass the raw UI input without stripping it. Strings
+/// over 512 bytes return `Error::MemoDecoding`.
+fn memo_bytes_from_str(memo: Option<&str>) -> Result<Option<MemoBytes>, Error> {
+    match memo {
+        None | Some("") => Ok(None),
+        Some(s) => {
+            let m: Memo = s.parse().map_err(Error::MemoDecoding)?;
+            Ok(Some(MemoBytes::from(&m)))
+        }
+    }
+}
 
 /// # A Zcash wallet
 ///
@@ -292,11 +307,16 @@ where
     ///
     /// Create a transaction proposal to send funds from the wallet to a given address
     ///
+    /// `memo`, when `Some`, is attached to the Sapling output as a ZIP-302
+    /// text memo. Passing `Some` with a transparent recipient is rejected
+    /// by `Payment::new` (transparent outputs have nowhere to store a
+    /// memo) — surface as `Error::UnsupportedMemoRecipient`.
     pub async fn propose_transfer(
         &self,
         account_id: AccountId,
         to_address: ZcashAddress,
         value: u64,
+        memo: Option<&str>,
     ) -> Result<Proposal<StandardFeeRule, NoteRef>, Error> {
         let input_selector = GreedyInputSelector::new();
 
@@ -315,10 +335,17 @@ where
                 Zatoshis::from_u64(self.min_split_output_value)?,
             ),
         );
-        let request = TransactionRequest::new(vec![Payment::without_memo(
+        let memo_bytes = memo_bytes_from_str(memo)?;
+        let payment = Payment::new(
             to_address,
-            Zatoshis::from_u64(value)?,
-        )])?;
+            Some(Zatoshis::from_u64(value)?),
+            memo_bytes,
+            None,
+            None,
+            vec![],
+        )
+        .ok_or(Error::UnsupportedMemoRecipient)?;
+        let request = TransactionRequest::new(vec![payment])?;
 
         tracing::info!("Chain height: {:?}", self.db.read().await.chain_height()?);
         tracing::info!(
@@ -435,7 +462,7 @@ where
     ) -> Result<(), Error> {
         let (usk, _) = usk_from_seed_str(seed_phrase, account_hd_index, &self.network)?;
         let proposal = self
-            .propose_transfer(from_account_id, to_address, value)
+            .propose_transfer(from_account_id, to_address, value, None)
             .await?;
         // TODO: Add callback for approving the transaction here
         let txids = self.create_proposed_transactions(proposal, &usk).await?;
@@ -646,6 +673,7 @@ where
         account_id: AccountId,
         to_address: ZcashAddress,
         value: u64,
+        memo: Option<&str>,
     ) -> Result<Pczt, Error> {
         // Ensure wallet is synced before creating transaction to prevent expiry errors
         let mut client = self.client.clone();
@@ -693,10 +721,17 @@ where
         );
 
         let input_selector = GreedyInputSelector::new();
-        let request = TransactionRequest::new(vec![Payment::without_memo(
+        let memo_bytes = memo_bytes_from_str(memo)?;
+        let payment = Payment::new(
             to_address,
-            Zatoshis::from_u64(value)?,
-        )])?;
+            Some(Zatoshis::from_u64(value)?),
+            memo_bytes,
+            None,
+            None,
+            vec![],
+        )
+        .ok_or(Error::UnsupportedMemoRecipient)?;
+        let request = TransactionRequest::new(vec![payment])?;
         let mut db = self.db.write().await;
         let proposal = propose_transfer::<_, _, _,_, <W as WalletCommitmentTrees>::Error>(
             &mut *db,

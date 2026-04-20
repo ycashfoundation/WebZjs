@@ -9,6 +9,7 @@ interface IUsePczt {
     accountId: number,
     toAddress: string,
     value: string,
+    memo?: string,
   ) => void;
   handlePcztShieldTransaction: (
     accountId: number,
@@ -47,6 +48,7 @@ export const usePczt = (): IUsePczt => {
     accountId: number,
     toAddress: string,
     value: string,
+    memo?: string,
   ) => {
     if (!state.webWallet) return;
     if (!signingBackend) {
@@ -67,6 +69,7 @@ export const usePczt = (): IUsePczt => {
         accountId,
         toAddress,
         amountZats,
+        memo,
       );
 
       // `sendShielded` already broadcast the tx. OPFS commits the write

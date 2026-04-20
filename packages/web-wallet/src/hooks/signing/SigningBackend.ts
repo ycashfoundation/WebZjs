@@ -37,12 +37,18 @@ export interface SigningBackend {
    * Build, authorize, and broadcast a shielded transfer to `toAddress` for
    * `amountZats` Zatoshis. Returns the flattened 32-byte-per-txid bytes that
    * `WebWallet::send_authorized_transactions` yields.
+   *
+   * `memo`, when non-empty, is attached to the Sapling output as a ZIP-302
+   * text memo. Only valid for shielded recipients; passing a memo to a
+   * transparent address rejects in the Rust layer with
+   * `UnsupportedMemoRecipient`.
    */
   sendShielded(
     wallet: WebWallet,
     accountId: number,
     toAddress: string,
     amountZats: bigint,
+    memo?: string,
   ): Promise<Uint8Array>;
 
   /**

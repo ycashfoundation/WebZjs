@@ -37,15 +37,18 @@ export class BrowserSigningBackend implements SigningBackend {
     accountId: number,
     toAddress: string,
     amountZats: bigint,
+    memo?: string,
   ): Promise<Uint8Array> {
     // Takes tens of seconds on a cold page — the caller's UI should
     // render a progress indicator around this call.
+    const trimmedMemo = memo?.trim();
     return wallet.send_transfer_from_seed(
       accountId,
       toAddress,
       amountZats,
       this.mnemonic,
       this.accountHdIndex,
+      trimmedMemo ? trimmedMemo : undefined,
     );
   }
 

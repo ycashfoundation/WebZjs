@@ -202,14 +202,19 @@ impl WebWallet {
     /// inside the DB worker; the returned PCZT still needs to be signed
     /// (outside this wasm module, in the Snap) and proven
     /// ([`Self::pczt_prove`]) before it can be sent.
+    ///
+    /// `memo`, when provided, is attached as a ZIP-302 text memo on the
+    /// Sapling output. Must be ≤ 512 UTF-8 bytes. Supplying a memo with a
+    /// transparent recipient fails with `UnsupportedMemoRecipient`.
     pub async fn pczt_create(
         &self,
         account_id: u32,
         to_address: String,
         value: u64,
+        memo: Option<String>,
     ) -> Result<Pczt, Error> {
         self.handle
-            .pczt_create(account_id, to_address, value)
+            .pczt_create(account_id, to_address, value, memo)
             .await
             .map_err(err_to_error)
     }
@@ -293,6 +298,7 @@ impl WebWallet {
         value: u64,
         seed_phrase: &str,
         account_hd_index: u32,
+        memo: Option<String>,
     ) -> Result<Vec<u8>, Error> {
         let txids = self
             .handle
@@ -302,6 +308,7 @@ impl WebWallet {
                 value,
                 seed_phrase.to_string(),
                 account_hd_index,
+                memo,
             )
             .await
             .map_err(err_to_error)?;

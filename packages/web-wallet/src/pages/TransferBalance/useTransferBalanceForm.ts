@@ -5,6 +5,12 @@ import { useWebZjsContext } from '../../context/WebzjsContext';
 export interface TransferBalanceFormData {
   amount: string;
   recipient: string;
+  /**
+   * Optional ZIP-302 text memo attached to the Sapling output. Empty string
+   * means no memo. Only meaningful for shielded recipients; passing a memo
+   * to a transparent address fails in the Rust layer.
+   */
+  memo: string;
 }
 
 export type TransferBalanceFormHandleChange = (
@@ -41,6 +47,7 @@ const useTransferBalanceForm = (): TransferBalanceFormType => {
   const [formData, setFormData] = useState<TransferBalanceFormData>({
     amount: '',
     recipient: '',
+    memo: '',
   });
 
   const nextStep = () => setCurrentStep((prev) => prev + 1);
@@ -54,9 +61,9 @@ const useTransferBalanceForm = (): TransferBalanceFormType => {
   };
 
   const submitForm = () => {
-    const { amount, recipient } = formData;
+    const { amount, recipient, memo } = formData;
     const accountId = state.activeAccount ?? 0;
-    handlePcztTransaction(accountId, recipient, amount);
+    handlePcztTransaction(accountId, recipient, amount, memo);
   };
 
 
@@ -64,6 +71,7 @@ const useTransferBalanceForm = (): TransferBalanceFormType => {
     setFormData({
       amount: '',
       recipient: '',
+      memo: '',
     });
     setCurrentStep(TransferStep.INPUT);
   };

@@ -7,6 +7,13 @@ export type SignPcztParams = {
   signDetails: {
     recipient: string;
     amount: string;
+    /**
+     * ZIP-302 text memo attached to the Sapling output, if the sender
+     * supplied one. Displayed to the user in the signing dialog so they
+     * can audit what they're signing (memos are committed to the tx and
+     * irreversibly on-chain once broadcast).
+     */
+    memo?: string;
   };
 };
 

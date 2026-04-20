@@ -27,14 +27,15 @@ use sapling::ProofGenerationKey;
 use tokio::sync::{mpsc, oneshot};
 use tonic_web_wasm_client::Client;
 use zcash_address::ZcashAddress;
-use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
+use zcash_client_backend::data_api::wallet::{decrypt_and_store_transaction, ConfirmationsPolicy};
 use zcash_client_backend::data_api::{AccountPurpose, WalletRead, Zip32Derivation};
 use zcash_client_backend::proto::service::{
-    BlockId, BlockRange, ChainSpec, TransparentAddressBlockFilter,
+    BlockId, BlockRange, ChainSpec, TransparentAddressBlockFilter, TxFilter,
 };
 use zcash_keys::encoding::AddressCodec;
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
-use zcash_primitives::transaction::TxId;
+use zcash_primitives::transaction::{Transaction, TxId};
+use zcash_protocol::consensus::{BlockHeight, BranchId};
 
 use webzjs_common::{Network, Pczt};
 use webzjs_keys::SeedFingerprint;
@@ -112,6 +113,11 @@ pub enum Request {
         account_id: u32,
         to_address: String,
         value: u64,
+        /// ZIP-302 text memo attached to the Sapling output. `None` for a
+        /// memo-less transfer; `Some` requires a shielded recipient —
+        /// `Payment::new` otherwise returns `None` and the wallet surfaces
+        /// `Error::UnsupportedMemoRecipient`.
+        memo: Option<String>,
     },
     PcztProve {
         pczt: Pczt,
@@ -164,6 +170,8 @@ pub enum Request {
         value: u64,
         seed_phrase: String,
         account_hd_index: u32,
+        /// ZIP-302 text memo, as for `PcztCreate`.
+        memo: Option<String>,
     },
     /// Fused shielding-tx send (classic, non-PCZT) for the browser
     /// signing backend. Runs `propose_shielding →
@@ -428,12 +436,14 @@ impl DbWorkerHandle {
         account_id: u32,
         to_address: String,
         value: u64,
+        memo: Option<String>,
     ) -> Result<Pczt, WorkerError> {
         match self
             .send(Request::PcztCreate {
                 account_id,
                 to_address,
                 value,
+                memo,
             })
             .await?
         {
@@ -504,6 +514,7 @@ impl DbWorkerHandle {
         value: u64,
         seed_phrase: String,
         account_hd_index: u32,
+        memo: Option<String>,
     ) -> Result<Vec<[u8; 32]>, WorkerError> {
         match self
             .send(Request::SendTransferFromSeed {
@@ -512,6 +523,7 @@ impl DbWorkerHandle {
                 value,
                 seed_phrase,
                 account_hd_index,
+                memo,
             })
             .await?
         {
@@ -667,6 +679,123 @@ async fn actor_loop(mut wallet: WorkerWallet, mut rx: mpsc::UnboundedReceiver<En
     }
 }
 
+/// Upper bound on how many transactions we'll re-decrypt in a single
+/// post-sync pass. Each one costs a gRPC round-trip + a full-note
+/// decryption pass over the tx's Sapling outputs, so don't let a large
+/// backlog stall an interactive sync. Any remainder gets picked up on the
+/// next sync cycle.
+const MEMO_CAPTURE_LIMIT: usize = 50;
+
+/// librustzcash's compact-block sync only captures the first 52 bytes of
+/// each Sapling output, which is enough for IVK trial decryption (value,
+/// diversifier, rcm) but leaves the 512-byte memo unrecoverable. To see
+/// memos on incoming shielded txs we have to separately fetch the full
+/// transaction from lightwalletd and run a full-note decryption pass via
+/// [`decrypt_and_store_transaction`], which updates the `memo` column on
+/// `sapling_received_notes` in place.
+///
+/// This runs after each `Request::Sync` completes. It's best-effort —
+/// failures are logged and swallowed — because a broken proxy or a single
+/// malformed tx shouldn't regress the "sync succeeded" signal that drives
+/// the UI's sync-health banner.
+async fn capture_missing_sapling_memos(wallet: &WorkerWallet) -> Result<usize, String> {
+    // 1. Enumerate incoming-only Sapling txs whose memo column is NULL.
+    //    `from_account_uuid IS NULL` filters to outputs we received from
+    //    an external sender — outgoing-self memos follow a different code
+    //    path (sent_notes.memo, populated at send time) and don't need
+    //    re-decryption. Pool code 2 is Sapling; Ycash has no Orchard.
+    let tx_candidates: Vec<(TxId, Option<BlockHeight>)> = {
+        let db = wallet.db.read().await;
+        let conn = db.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT t.txid, t.mined_height
+                 FROM v_tx_outputs vtx
+                 JOIN transactions t ON t.txid = vtx.txid
+                 WHERE vtx.output_pool = 2
+                   AND vtx.memo IS NULL
+                   AND vtx.from_account_uuid IS NULL
+                 LIMIT ?1",
+            )
+            .map_err(|e| format!("memo capture prepare: {e}"))?;
+        let rows = stmt
+            .query_map(rusqlite::params![MEMO_CAPTURE_LIMIT as u32], |r| {
+                let txid_bytes: [u8; 32] = r.get(0)?;
+                let mined_height: Option<u32> = r.get(1)?;
+                Ok((
+                    TxId::from_bytes(txid_bytes),
+                    mined_height.map(BlockHeight::from_u32),
+                ))
+            })
+            .map_err(|e| format!("memo capture query: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("memo capture collect: {e}"))?
+    };
+
+    if tx_candidates.is_empty() {
+        return Ok(0);
+    }
+    tracing::info!(
+        "capture_missing_sapling_memos: refreshing {} tx(s)",
+        tx_candidates.len()
+    );
+
+    // 2. For each candidate, pull the full tx from lightwalletd. TxFilter
+    //    hashes use the internal byte order (the same layout we get from
+    //    `TxId::as_ref`), not the display-form reversed hex — send the
+    //    raw bytes.
+    let mut client = wallet.client.clone();
+    let mut refreshed = 0usize;
+    for (txid, mined_height) in tx_candidates {
+        let hash: &[u8; 32] = txid.as_ref();
+        let raw = match client
+            .get_transaction(TxFilter {
+                block: None,
+                index: 0,
+                hash: hash.to_vec(),
+            })
+            .await
+        {
+            Ok(r) => r.into_inner(),
+            Err(e) => {
+                tracing::warn!("memo capture: get_transaction({txid}) failed: {e}");
+                continue;
+            }
+        };
+
+        // 3. Parse under the consensus branch id for this tx's height. On
+        //    Ycash that's always Sapling once we're past activation —
+        //    Nu5 never fired — but derive it from params anyway so this
+        //    stays correct if someone ports back upstream.
+        let branch_id = match mined_height {
+            Some(h) => BranchId::for_height(&wallet.network, h),
+            None => BranchId::Sapling,
+        };
+        let tx = match Transaction::read(&raw.data[..], branch_id) {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::warn!("memo capture: Transaction::read({txid}) failed: {e}");
+                continue;
+            }
+        };
+
+        // 4. Run a full-note decryption pass and persist the result.
+        //    `decrypt_and_store_transaction` re-upserts the wallet's
+        //    received outputs; the `sapling_memo_consistency` migration
+        //    ensures memo-on-conflict updates land.
+        let mut db = wallet.db.write().await;
+        match decrypt_and_store_transaction(&wallet.network, &mut *db, &tx, mined_height) {
+            Ok(()) => refreshed += 1,
+            Err(e) => {
+                tracing::warn!("memo capture: decrypt_and_store_transaction({txid}) failed: {e}");
+            }
+        }
+    }
+
+    tracing::info!("capture_missing_sapling_memos: refreshed {refreshed} tx(s)");
+    Ok(refreshed)
+}
+
 async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, String> {
     match req {
         Request::Ping { nonce } => Ok(Response::Pong { nonce }),
@@ -813,6 +942,11 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
 
         Request::Sync => {
             wallet.sync().await.map_err(|e| e.to_string())?;
+            // Compact-block sync leaves Sapling memos empty. Best-effort
+            // backfill after every sync; if it trips, log and move on.
+            if let Err(e) = capture_missing_sapling_memos(wallet).await {
+                tracing::warn!("memo capture failed (non-fatal): {e}");
+            }
             Ok(Response::Unit)
         }
 
@@ -820,6 +954,7 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             account_id,
             to_address,
             value,
+            memo,
         } => {
             let account_uuid = account_uuid_from_u32(wallet, account_id)
                 .await
@@ -827,7 +962,7 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             let to_address =
                 ZcashAddress::try_from_encoded(&to_address).map_err(|e| format!("{e}"))?;
             let pczt = wallet
-                .pczt_create(account_uuid, to_address, value)
+                .pczt_create(account_uuid, to_address, value, memo.as_deref())
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(Response::Pczt(pczt.into()))
@@ -922,6 +1057,7 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             value,
             seed_phrase,
             account_hd_index,
+            memo,
         } => {
             // Derive the USK inside the worker so the seed only ever exists
             // on this thread. Matches the memory-backed `WebWallet::shield`
@@ -936,7 +1072,7 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             let to = ZcashAddress::try_from_encoded(&to_address).map_err(|e| format!("{e}"))?;
 
             let proposal = wallet
-                .propose_transfer(account_uuid, to, value)
+                .propose_transfer(account_uuid, to, value, memo.as_deref())
                 .await
                 .map_err(|e| e.to_string())?;
             let txids = wallet
@@ -1315,15 +1451,25 @@ fn query_transaction_history(
 
 /// Decodes the textual portion of a Zcash memo, or returns `None` if the
 /// memo is empty, a non-text variant (arbitrary / future), or fails to
-/// parse. Mirrors the memory-backed extraction in
-/// `bindgen::transaction_history` which only surfaces `Memo::Text` values
-/// to the UI.
+/// parse.
+///
+/// `zcash_client_sqlite`'s `memo_repr` helper (see
+/// `wallet/encoding.rs`) stores memos in a compact representation:
+/// - Empty memo → a single `0xF6` byte sentinel.
+/// - Non-empty memo → `MemoBytes::as_slice()`, which is the underlying
+///   512-byte array with trailing zero bytes stripped.
+///
+/// `Memo::from_bytes` wants the full 512-byte canonical form, so we
+/// right-pad with `0x00` (the ZIP-302 zero-padding for text memos, NOT
+/// `0xF6` — padding with `0xF6` would insert invalid UTF-8 tail bytes and
+/// make every non-empty memo fail to parse).
 #[cfg(feature = "wasm")]
 fn decode_memo_text(bytes: &[u8]) -> Option<String> {
-    // `Memo::from_bytes` expects exactly 512 bytes; outputs in the DB can
-    // be shorter if the backend hasn't padded them, so right-pad with
-    // `0xF6` (the no-memo marker) before decoding.
-    let mut padded = [0xF6u8; 512];
+    // Fast path for the single-byte empty-memo sentinel.
+    if bytes.len() == 1 && bytes[0] == 0xF6 {
+        return None;
+    }
+    let mut padded = [0u8; 512];
     let n = bytes.len().min(512);
     padded[..n].copy_from_slice(&bytes[..n]);
     match zcash_protocol::memo::Memo::from_bytes(&padded) {

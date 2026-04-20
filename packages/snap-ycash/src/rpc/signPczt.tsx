@@ -23,6 +23,7 @@ export async function signPczt(
           <Text>Origin: {origin}</Text>
           <Text>Recipient: {signDetails.recipient}</Text>
           <Text>Amount: {signDetails.amount} YEC</Text>
+          {signDetails.memo ? <Text>Memo: {signDetails.memo}</Text> : null}
           <Divider />
           <Text>PCZT hex to sign</Text>
           <Copyable value={pcztHexString} />

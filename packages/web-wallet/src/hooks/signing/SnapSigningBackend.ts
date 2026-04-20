@@ -135,11 +135,12 @@ export class SnapSigningBackend implements SigningBackend {
     pczt: Pczt,
     recipient: string,
     amount: string,
+    memo?: string,
   ): Promise<Pczt> {
     const pcztHex = bytesToHex(pczt.serialize());
     const signedHex = await this.invokeSnap<string>('signPczt', {
       pcztHexString: pcztHex,
-      signDetails: { recipient, amount },
+      signDetails: { recipient, amount, ...(memo ? { memo } : {}) },
     });
     if (!/^[0-9a-fA-F]+$/.test(signedHex)) {
       throw new Error('Snap returned non-hex PCZT');
@@ -152,9 +153,21 @@ export class SnapSigningBackend implements SigningBackend {
     accountId: number,
     toAddress: string,
     amountZats: bigint,
+    memo?: string,
   ): Promise<Uint8Array> {
-    // 1. Create the unsigned, unproven PCZT from the active account.
-    const unsigned = await wallet.pczt_create(accountId, toAddress, amountZats);
+    // 1. Create the unsigned, unproven PCZT from the active account. A
+    //    trimmed, non-empty memo gets attached as a ZIP-302 text memo on
+    //    the Sapling output. The snap will surface the memo bytes in the
+    //    signing dialog via `signDetails` below so the user can read what
+    //    they're agreeing to.
+    const trimmedMemo = memo?.trim();
+    const memoArg = trimmedMemo ? trimmedMemo : undefined;
+    const unsigned = await wallet.pczt_create(
+      accountId,
+      toAddress,
+      amountZats,
+      memoArg,
+    );
 
     // 2. Ask the snap for the Sapling PGKs (user approval #1). Returns
     //    both external and internal scope; the dapp picks per spend.
@@ -167,9 +180,15 @@ export class SnapSigningBackend implements SigningBackend {
     const proven = await wallet.pczt_prove(unsigned, pgks.external, pgks.internal);
 
     // 4. Snap signs using its USK (user approval #2). For v4, sighash is
-    //    computed over the proofs we just inserted.
+    //    computed over the proofs we just inserted. The snap displays the
+    //    memo bytes (if any) in the approval dialog — surface it.
     const amountYec = (Number(amountZats) / 1e8).toString();
-    const signed = await this.signPcztInSnap(proven, toAddress, amountYec);
+    const signed = await this.signPcztInSnap(
+      proven,
+      toAddress,
+      amountYec,
+      memoArg,
+    );
 
     // 5. Broadcast. send() returns void; we return an empty marker to
     //    match the SigningBackend interface (the classic path returns the
