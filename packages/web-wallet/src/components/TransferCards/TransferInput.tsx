@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import cn from 'classnames';
 import {
   TransferBalanceFormData,
   TransferBalanceFormHandleChange,
 } from '../../pages/TransferBalance/useTransferBalanceForm';
 import Input from '../Input/Input';
 import Button from '../Button/Button';
+import ErrorMessage from '../ErrorMessage/ErrorMessage';
 import useBalance from '../../hooks/useBalance';
 import { yecToZats, zatsToYec } from '../../utils/balance';
 
@@ -14,8 +16,102 @@ interface TransferInputProps {
   nextStep: () => void;
 }
 
+type AddressClassification =
+  | { kind: 'shielded' }
+  | { kind: 'transparent' }
+  | { kind: 'invalid'; reason: string };
+
+/**
+ * Loose, client-side classification of the recipient address so we can
+ * surface a specific error *before* the send pipeline runs (tens of
+ * seconds of proving, snap approval, etc.). Not authoritative — the Rust
+ * layer does the bech32/base58 parse and will reject anything we let
+ * through — but catches the common "pasted the wrong address" cases
+ * early and lets us gate the memo field on "is this even a shielded
+ * address."
+ *
+ * Ycash mainnet uses the following prefixes (per `chainparams.cpp` and
+ * memory/reference_ycash_consensus.md):
+ *   - Sapling (bech32 HRP "ys")        → `ys1…`
+ *   - Transparent P2PKH (base58 0x1C,0x28) → `s1…`
+ *   - Transparent P2SH  (base58 0x1C,0x2C) → `s3…`
+ *
+ * Everything else is rejected with a message naming *why*. Zcash
+ * addresses (zs1, t1, t3, u1, ua1) are the overwhelmingly most common
+ * typo because the chains share a UX history; testnet (`ytestsapling`,
+ * `sm…`, `tm…`, `zt…`) gets its own branch because the error for a
+ * mainnet-only wallet is actionable.
+ */
+function classifyAddress(addr: string): AddressClassification {
+  const trimmed = addr.trim();
+  if (!trimmed) return { kind: 'invalid', reason: 'Please enter a valid address' };
+  const lower = trimmed.toLowerCase();
+
+  if (/^zs1/.test(lower)) {
+    return {
+      kind: 'invalid',
+      reason:
+        'That is a Zcash Sapling address (zs1…). This wallet only sends Ycash — ask the recipient for a ys1… address.',
+    };
+  }
+  if (/^(u1|ua1)[a-z0-9]/.test(lower)) {
+    return {
+      kind: 'invalid',
+      reason:
+        'Unified addresses require NU5, which Ycash never activated. Ask the recipient for their ys1… Sapling address.',
+    };
+  }
+  if (/^t[13][a-z0-9]/i.test(trimmed)) {
+    return {
+      kind: 'invalid',
+      reason:
+        'Zcash transparent addresses (t1…, t3…) are not compatible with Ycash.',
+    };
+  }
+  if (/^(ytestsapling|zt|tm|sm)/.test(lower)) {
+    return {
+      kind: 'invalid',
+      reason: 'That looks like a testnet address — this wallet is mainnet-only.',
+    };
+  }
+
+  if (/^ys1[a-z0-9]+$/.test(lower)) {
+    return { kind: 'shielded' };
+  }
+
+  // Base58 alphabet (preserves case — `s3`/`s1` are real version bytes).
+  if (/^s[13][A-HJ-NP-Za-km-z1-9]+$/.test(trimmed)) {
+    return { kind: 'transparent' };
+  }
+
+  return {
+    kind: 'invalid',
+    reason: "Doesn't look like a Ycash address (expected ys1… or s1…/s3…).",
+  };
+}
+
+/**
+ * Byte length of a UTF-8 string. Memos are capped at 512 bytes (ZIP-302),
+ * which is not the same as 512 characters once you have emoji or non-ASCII
+ * text in the memo. `TextEncoder` is the cheapest way to count.
+ */
+function memoByteLength(memo: string): number {
+  return new TextEncoder().encode(memo).length;
+}
+
+const MEMO_MAX_BYTES = 512;
+
+/**
+ * Reserve exactly the ZIP-317 minimum fee (10_000 zats) when computing the
+ * send-max amount. The real fee is computed by the wallet at signing time
+ * and may be higher for complex spends, but 10_000 matches the buffer used
+ * in `validateFields` below and keeps the two code paths consistent — if
+ * Max fills a value, the validator should accept it.
+ */
+const FEE_BUFFER_ZATS = 10_000;
+
 export function TransferInput({
-  formData: { recipient, amount },
+  formData: { recipient, amount, memo },
   nextStep,
   handleChange,
 }: TransferInputProps): React.JSX.Element {
@@ -25,17 +121,23 @@ export function TransferInput({
     recipient: '',
     transactionType: '',
     amount: '',
+    memo: '',
   });
+
+  const classification = classifyAddress(recipient);
 
   const validateFields = () => {
     const newErrors = {
       recipient: '',
       transactionType: '',
       amount: '',
+      memo: '',
     };
 
     if (!recipient) {
       newErrors.recipient = 'Please enter a valid address';
+    } else if (classification.kind === 'invalid') {
+      newErrors.recipient = classification.reason;
     }
 
     if (!amount) {
@@ -47,12 +149,11 @@ export function TransferInput({
     } else {
       try {
         const amountInZats = yecToZats(amount);
-        const FEE_BUFFER = 10_000;
-        const totalRequired = Number(amountInZats) + FEE_BUFFER;
+        const totalRequired = Number(amountInZats) + FEE_BUFFER_ZATS;
 
         if (totalRequired > spendableBalance) {
           const availableYec = zatsToYec(
-            Math.max(0, spendableBalance - FEE_BUFFER),
+            Math.max(0, spendableBalance - FEE_BUFFER_ZATS),
           );
           newErrors.amount = `Insufficient balance. Available (after fees): ${availableYec.toFixed(8)} YEC`;
         }
@@ -61,9 +162,33 @@ export function TransferInput({
       }
     }
 
+    if (memo) {
+      if (memoByteLength(memo) > MEMO_MAX_BYTES) {
+        newErrors.memo = `Memo is too long (${memoByteLength(memo)} / ${MEMO_MAX_BYTES} bytes)`;
+      } else if (classification.kind === 'transparent') {
+        newErrors.memo =
+          'Memos can only be sent to shielded (ys1…) addresses. Clear the memo or change the recipient.';
+      }
+    }
+
     setErrors(newErrors);
     return !Object.values(newErrors).some((error) => error !== '');
   };
+
+  /**
+   * Fill the amount input with "the most you can send right now" — the
+   * spendable Sapling balance minus the fee buffer, in YEC, at 8-decimal
+   * precision (stringified via `toFixed(8)` so the input parses cleanly
+   * as `yecToZats`). Returns a no-op when the balance is too low to
+   * produce a positive amount.
+   */
+  const fillMax = () => {
+    const maxZats = spendableBalance - FEE_BUFFER_ZATS;
+    if (maxZats <= 0) return;
+    const maxYec = zatsToYec(maxZats).toFixed(8);
+    handleChange('amount')(maxYec);
+  };
+  const maxDisabled = spendableBalance <= FEE_BUFFER_ZATS;
 
   const handleContinue = () => {
     if (validateFields()) nextStep();
@@ -98,6 +223,27 @@ export function TransferInput({
         mono
         inputMode="decimal"
         onChange={(event) => handleChange('amount')(event)}
+        labelActions={
+          <button
+            type="button"
+            onClick={fillMax}
+            disabled={maxDisabled}
+            title={
+              maxDisabled
+                ? 'No spendable balance after fee reserve'
+                : `Fill in the maximum you can send (spendable − ${zatsToYec(FEE_BUFFER_ZATS).toFixed(8)} YEC fee reserve)`
+            }
+            className="font-mono text-[10px] uppercase tracking-[0.2em] text-ycash hover:text-ycash-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Max
+          </button>
+        }
+      />
+      <MemoField
+        value={memo}
+        error={errors.memo}
+        disabled={classification.kind === 'transparent'}
+        onChange={(event) => handleChange('memo')(event)}
       />
       <div className="flex items-center justify-between gap-4 pt-2 border-t border-border">
         <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
@@ -105,6 +251,71 @@ export function TransferInput({
         </span>
         <Button onClick={handleContinue} label="Review transfer" />
       </div>
+    </div>
+  );
+}
+
+interface MemoFieldProps {
+  value: string;
+  error?: string;
+  disabled: boolean;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+}
+
+/**
+ * Optional ZIP-302 text memo up to 512 bytes. Visually styled to match the
+ * `Input` component (card bg, mono font, same border treatment) but uses a
+ * textarea so memos can span multiple lines. The remaining-bytes readout
+ * lives in the label row on the right so the user can see how much space is
+ * left without the field feeling heavyweight for the common "I don't want a
+ * memo" case.
+ */
+function MemoField({ value, error, disabled, onChange }: MemoFieldProps) {
+  const bytes = memoByteLength(value);
+  const remaining = MEMO_MAX_BYTES - bytes;
+  return (
+    <div className="flex flex-col gap-2 w-full">
+      <div className="flex items-center justify-between">
+        <label
+          htmlFor="memo"
+          className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim"
+        >
+          Memo · optional
+        </label>
+        {!disabled && value.length > 0 && (
+          <span
+            className={cn(
+              'font-mono text-[10px] uppercase tracking-[0.15em]',
+              remaining < 0 ? 'text-danger' : 'text-text-dim',
+            )}
+          >
+            {remaining} bytes left
+          </span>
+        )}
+      </div>
+      <div
+        className={cn(
+          'bg-card border rounded-md px-4 py-3 transition-colors',
+          'border-border focus-within:border-accent',
+          error && 'border-danger/60',
+          disabled && 'opacity-60',
+        )}
+      >
+        <textarea
+          id="memo"
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          rows={2}
+          placeholder={
+            disabled
+              ? 'Memos require a shielded (ys1…) recipient'
+              : 'Optional message — visible only to the recipient'
+          }
+          className="w-full bg-transparent text-text placeholder:text-text-dim text-sm leading-relaxed focus:outline-none resize-y disabled:cursor-not-allowed"
+        />
+      </div>
+      <ErrorMessage text={error} />
     </div>
   );
 }

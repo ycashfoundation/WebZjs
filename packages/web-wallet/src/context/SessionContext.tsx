@@ -4,9 +4,11 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { get, set, del } from 'idb-keyval';
+import toast from 'react-hot-toast';
 import {
   clearEncryptedSeed,
   decryptSeed,
@@ -19,6 +21,35 @@ export type SessionStatus = 'unknown' | 'no-vault' | 'locked' | 'unlocked';
 export type BackendChoice = 'browser' | 'snap';
 
 const BACKEND_KEY = 'yw:backend';
+
+/**
+ * Idle timeout before the browser backend auto-wipes the in-memory seed and
+ * forces re-unlock. Snap-backed wallets are immune — MetaMask manages its
+ * own unlock state — so this only applies when `backend === 'browser'` and
+ * the session is currently `unlocked`.
+ *
+ * 10 minutes is a middle ground: MetaMask defaults to 5 min (aggressive),
+ * 1Password/Ledger Live default to 10 min, and Coinbase Wallet does 30 min.
+ * We round to 10 because shielded sends are slow (prove + sign + broadcast
+ * can run 30+ seconds on a cold page) and it's annoying to come back to a
+ * lock screen in the middle of drafting a memo.
+ */
+const AUTO_LOCK_IDLE_MS = 10 * 60 * 1000;
+
+/**
+ * DOM events that count as "user is still here." Pointer + keyboard + scroll
+ * covers every meaningful interaction; `visibilitychange` is handled
+ * separately below (tab focus doesn't reset idle — you could leave a window
+ * visible and walk away).
+ */
+const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
+  'mousedown',
+  'mousemove',
+  'keydown',
+  'touchstart',
+  'scroll',
+  'wheel',
+];
 
 interface SessionContextShape {
   status: SessionStatus;
@@ -145,6 +176,47 @@ export function SessionProvider({
     // them back to the passphrase prompt only for browser backend.
     setStatus(backend === 'snap' ? 'unlocked' : 'locked');
   }, [backend]);
+
+  // Browser-backend auto-lock. Arm only when (a) we hold an in-memory
+  // mnemonic and (b) the user hasn't interacted within the idle window.
+  // Snap-backed sessions skip this entirely; locking a snap session would
+  // just re-send the user through a no-op unlock with no security benefit.
+  const lockRef = useRef(lock);
+  lockRef.current = lock;
+  useEffect(() => {
+    if (status !== 'unlocked' || backend !== 'browser') return;
+
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerAutoLock = () => {
+      lockRef.current();
+      toast.success('Wallet locked after 10 minutes of inactivity', {
+        id: 'auto-lock',
+        duration: 6000,
+      });
+    };
+
+    const armTimer = () => {
+      if (timerId != null) clearTimeout(timerId);
+      timerId = setTimeout(triggerAutoLock, AUTO_LOCK_IDLE_MS);
+    };
+
+    // Passive listeners so scroll handling stays smooth under load. We're
+    // only interested in "did something happen," not the event details.
+    const resetIdle = () => armTimer();
+    for (const ev of ACTIVITY_EVENTS) {
+      window.addEventListener(ev, resetIdle, { passive: true });
+    }
+
+    armTimer();
+
+    return () => {
+      if (timerId != null) clearTimeout(timerId);
+      for (const ev of ACTIVITY_EVENTS) {
+        window.removeEventListener(ev, resetIdle);
+      }
+    };
+  }, [status, backend]);
 
   const wipeVault = useCallback(async () => {
     // Full factory reset: besides the encrypted seed and backend choice,

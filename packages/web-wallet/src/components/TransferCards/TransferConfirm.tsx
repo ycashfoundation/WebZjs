@@ -12,7 +12,7 @@ interface TransferConfirmProps {
 }
 
 export function TransferConfirm({
-  formData: { recipient, amount },
+  formData: { recipient, amount, memo },
   nextStep,
   submitForm,
 }: TransferConfirmProps): React.JSX.Element {
@@ -62,6 +62,7 @@ export function TransferConfirm({
       <div className="flex flex-col">
         <Row label="Recipient" value={recipient} mono />
         <Row label="Amount" value={`${amount} YEC`} />
+        {memo && memo.trim().length > 0 && <Row label="Memo" value={memo} />}
         <Row
           label="Network fee"
           value="ZIP-317 (calculated at signing time)"

@@ -10,8 +10,8 @@ describe('TransferInput', () => {
   const defaultProps = {
     formData: {
       recipient: '',
-      transactionType: 'internal' as const,
       amount: '',
+      memo: '',
     },
     handleChange: mockHandleChange,
     nextStep: mockNextStep,

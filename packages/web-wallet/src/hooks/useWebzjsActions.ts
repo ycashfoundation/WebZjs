@@ -198,12 +198,26 @@ export function useWebZjsActions(): WebzjsActions {
                 baseDelay: 3000,
               });
               await syncStateWithWallet();
+              dispatch({ type: 'sync-succeeded' });
+            } catch (syncErr) {
+              dispatch({ type: 'sync-failed' });
+              throw syncErr;
             } finally {
               dispatch({ type: 'set-sync-in-progress', payload: false });
             }
+          } else {
+            // No new blocks to scan, but we did round-trip the lightwalletd
+            // proxy successfully — that's enough to reset the offline
+            // banner's failure streak.
+            dispatch({ type: 'sync-succeeded' });
           }
+        } else if (latestBlock) {
+          // get_latest_block succeeded; treat that as proof-of-life for
+          // the proxy even if no sync was needed.
+          dispatch({ type: 'sync-succeeded' });
         }
       } catch (err) {
+        dispatch({ type: 'sync-failed' });
         console.error('Error checking chain height:', err);
       }
       return;
@@ -217,7 +231,9 @@ export function useWebZjsActions(): WebzjsActions {
         baseDelay: 3000,
       });
       await syncStateWithWallet();
+      dispatch({ type: 'sync-succeeded' });
     } catch (err) {
+      dispatch({ type: 'sync-failed' });
       console.warn('Sync failed (will retry next interval):', err);
     } finally {
       dispatch({ type: 'set-sync-in-progress', payload: false });
@@ -327,8 +343,13 @@ export function useWebZjsActions(): WebzjsActions {
           dispatch({ type: 'set-chain-height', payload: chainHeight });
         }
 
+        // A completed full-resync loop by definition successfully reached
+        // the lightwalletd proxy at least once, so reset the offline
+        // banner's failure streak.
+        dispatch({ type: 'sync-succeeded' });
         console.info('Full resync: Complete');
       } catch (err: unknown) {
+        dispatch({ type: 'sync-failed' });
         console.error('Full resync failed:', err);
         dispatch({ type: 'set-error', payload: String(err) });
       } finally {

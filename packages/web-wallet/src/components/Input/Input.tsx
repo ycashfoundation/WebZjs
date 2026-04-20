@@ -4,6 +4,12 @@ import ErrorMessage from '../ErrorMessage/ErrorMessage';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
+  /**
+   * Optional right-aligned content in the label row — e.g. a "Max" link
+   * next to an Amount field. Rendered with `justify-between` against the
+   * label, so you always get a consistent gap.
+   */
+  labelActions?: React.ReactNode;
   error?: string;
   containerClassName?: string;
   labelClassName?: string;
@@ -15,6 +21,7 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 const Input: React.FC<InputProps> = ({
   label,
+  labelActions,
   error,
   containerClassName = '',
   labelClassName = '',
@@ -26,16 +33,23 @@ const Input: React.FC<InputProps> = ({
 }) => {
   return (
     <div className={cn('flex flex-col gap-2 w-full', containerClassName)}>
-      {label && (
-        <label
-          htmlFor={id}
-          className={cn(
-            'font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim',
-            labelClassName,
+      {(label || labelActions) && (
+        <div className="flex items-center justify-between gap-2">
+          {label ? (
+            <label
+              htmlFor={id}
+              className={cn(
+                'font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim',
+                labelClassName,
+              )}
+            >
+              {label}
+            </label>
+          ) : (
+            <span />
           )}
-        >
-          {label}
-        </label>
+          {labelActions}
+        </div>
       )}
       <div
         className={cn(

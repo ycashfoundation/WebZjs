@@ -37,6 +37,20 @@ export interface WebZjsState {
   syncInProgress: boolean;
   loading: boolean;
   initialized: boolean;
+  /**
+   * Count of consecutive `sync()` failures. Reset to 0 after any successful
+   * sync. Drives the top-level offline banner — a value ≥ 2 is the
+   * threshold that implies "this isn't just a single gRPC hiccup, the proxy
+   * is genuinely unreachable." Keep the threshold conservative so flaky
+   * Wi-Fi doesn't flash a scary banner.
+   */
+  syncFailureStreak: number;
+  /**
+   * `Date.now()` of the most recent successful sync, or `null` if the
+   * wallet has never completed one in this session. Used by the banner to
+   * tell the user *how long ago* things stopped working.
+   */
+  lastSyncSuccessAt: number | null;
 }
 
 type Action =
@@ -47,7 +61,9 @@ type Action =
   | { type: 'set-active-account'; payload: number }
   | { type: 'set-sync-in-progress'; payload: boolean }
   | { type: 'set-loading'; payload: boolean }
-  | { type: 'set-initialized'; payload: boolean };
+  | { type: 'set-initialized'; payload: boolean }
+  | { type: 'sync-succeeded' }
+  | { type: 'sync-failed' };
 
 const initialState: WebZjsState = {
   webWallet: null,
@@ -59,6 +75,8 @@ const initialState: WebZjsState = {
   syncInProgress: false,
   loading: false,
   initialized: false,
+  syncFailureStreak: 0,
+  lastSyncSuccessAt: null,
 };
 
 function reducer(state: WebZjsState, action: Action): WebZjsState {
@@ -79,6 +97,17 @@ function reducer(state: WebZjsState, action: Action): WebZjsState {
       return { ...state, loading: action.payload };
     case 'set-initialized':
       return { ...state, initialized: action.payload };
+    case 'sync-succeeded':
+      return {
+        ...state,
+        syncFailureStreak: 0,
+        lastSyncSuccessAt: Date.now(),
+      };
+    case 'sync-failed':
+      return {
+        ...state,
+        syncFailureStreak: state.syncFailureStreak + 1,
+      };
     default:
       return state;
   }
