@@ -35,8 +35,6 @@ pub enum Error {
     Grpc(#[from] tonic::Status),
     #[error("Error handling wallet birthday")]
     Birthday,
-    #[error("Memory client error: {0}")]
-    MemoryClient(#[from] zcash_client_memory::Error),
     #[error("Error scanning: {0}")]
     Scan(zcash_client_backend::scanning::ScanError),
     #[error("IO Error: {0}")]
@@ -61,7 +59,6 @@ pub enum Error {
     #[error("Error decoding memo: {0}")]
     MemoDecoding(#[from] zcash_protocol::memo::Error),
 
-    #[cfg(feature = "sqlite-db")]
     #[error("Sqlite error: {0}")]
     Sqlite(#[from] zcash_client_sqlite::error::SqliteClientError),
     #[error("Invalid seed phrase")]

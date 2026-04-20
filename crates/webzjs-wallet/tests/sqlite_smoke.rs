@@ -8,8 +8,6 @@
 //! Uses the in-memory VFS rather than OPFS sahpool so the test runs in the
 //! wasm-pack main-thread harness without needing a dedicated worker.
 
-#![cfg(feature = "sqlite-db")]
-
 use webzjs_common::Network;
 use webzjs_wallet::db::sqlite::SqliteWalletDb;
 use zcash_client_sqlite::wallet::init::init_wallet_db;
@@ -25,12 +23,11 @@ wasm_bindgen_test_configure!(run_in_browser);
 #[cfg_attr(all(target_family = "wasm", target_os = "unknown"), wasm_bindgen_test)]
 #[cfg_attr(not(all(target_family = "wasm", target_os = "unknown")), test)]
 fn open_and_migrate_in_memory() {
-    let mut db = SqliteWalletDb::open_in_memory(Network::MainNetwork)
-        .expect("open :memory: wallet");
+    let mut db =
+        SqliteWalletDb::open_in_memory(Network::MainNetwork).expect("open :memory: wallet");
 
     // init_wallet_db runs all schemerz-rusqlite migrations without a seed.
     // Seed-requiring migrations do not run until an account is added, so this
     // should succeed on a fresh in-memory DB.
-    init_wallet_db(db.inner_mut(), None)
-        .expect("init_wallet_db should succeed on empty DB");
+    init_wallet_db(db.inner_mut(), None).expect("init_wallet_db should succeed on empty DB");
 }

@@ -1,9 +1,9 @@
 //! SQLite-backed wallet storage.
 //!
-//! This is the entry point for the ongoing migration from
-//! [`zcash_client_memory::MemoryWalletDb`] to
-//! [`zcash_client_sqlite::WalletDb`]. The migration plan is documented in the
-//! project memory (`project_sqlite_plan.md` / `project_sqlite_step2_decisions.md`).
+//! Thin wrapper over [`zcash_client_sqlite::WalletDb`] that pins the
+//! generic parameters the rest of the WebZjs stack expects (rusqlite
+//! `Connection`, WebZjs `Network`, [`WasmClock`] on wasm /
+//! [`zcash_client_sqlite::util::SystemClock`] on native, [`OsRng`]).
 //!
 //! # Threading & VFS
 //!
@@ -92,8 +92,8 @@ impl SqliteWalletDb {
     }
 
     fn open_uri(uri: &str, network: Network) -> Result<Self, Error> {
-        let inner = WalletDb::for_path(uri, network, default_clock(), OsRng)
-            .map_err(Error::Sqlite)?;
+        let inner =
+            WalletDb::for_path(uri, network, default_clock(), OsRng).map_err(Error::Sqlite)?;
         Ok(Self { inner })
     }
 
@@ -107,7 +107,19 @@ impl SqliteWalletDb {
     pub fn inner_mut(&mut self) -> &mut WalletDb<Connection, Network, DefaultClock, OsRng> {
         &mut self.inner
     }
+
+    /// Consume the wrapper and hand back the underlying
+    /// [`WalletDb`]. Used by the DB worker, which plugs the open
+    /// connection directly into [`crate::Wallet`].
+    pub fn into_inner(self) -> WalletDb<Connection, Network, DefaultClock, OsRng> {
+        self.inner
+    }
 }
+
+/// The concrete [`WalletDb`] type the WebZjs DB worker owns. Named so
+/// call sites outside this module (in particular `db::worker`) don't
+/// have to duplicate the four-type parameter list.
+pub type WorkerWalletDb = WalletDb<Connection, Network, DefaultClock, OsRng>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

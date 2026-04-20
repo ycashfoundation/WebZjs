@@ -1,177 +1,102 @@
-use std::str::FromStr;
+//! The JS-facing wallet. Backed by the single-owner SQLite DB worker
+//! (sahpool OPFS on wasm, `:memory:` on native tests); see
+//! [`crate::db::worker`] for the actor implementation.
+//!
+//! History: this module previously hosted two siblings — a memory-backed
+//! `WebWallet` pinned to [`zcash_client_memory::MemoryWalletDb`] and a
+//! sqlite-backed `WebWalletSqlite`. Step 7 (2026-04-19) retired the
+//! memory path and renamed the SQLite type to `WebWallet`, so there's
+//! only one browser wallet surface and JS callers don't have to
+//! feature-detect.
+//!
+//! JS usage:
+//! ```javascript
+//! const w = await WebWallet.create(
+//!   "main",
+//!   "webzjs-wallet.sqlite3",
+//!   "https://lite.ycash.xyz",
+//!   1, 1);
+//! const summary = await w.get_wallet_summary();
+//! await w.sync();
+//! const pczt = await w.pczt_create(accountId, toAddr, zats);
+//! ```
 
-use nonempty::NonEmpty;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use tonic_web_wasm_client::Client;
-
-use crate::error::Error;
-use crate::validation::validate_confirmations_policy;
-use crate::wallet::usk_from_seed_str;
-use crate::{bindgen::proposal::Proposal, Wallet, PRUNING_DEPTH};
-use futures_util::TryStreamExt;
-use wasm_thread as thread;
 use webzjs_common::{Network, Pczt};
 use webzjs_keys::{ProofGenerationKey, SeedFingerprint};
-use zcash_address::ZcashAddress;
-use zcash_client_backend::data_api::{AccountPurpose, InputSource, WalletRead, Zip32Derivation};
-use zcash_client_backend::proto::service::{
-    compact_tx_streamer_client::CompactTxStreamerClient, BlockId, BlockRange, ChainSpec,
-    TransparentAddressBlockFilter,
+
+use super::transaction_history::TransactionHistoryResponse;
+use crate::db::worker::{
+    spawn, AccountBalanceData, Backing, DbWorkerHandle, WalletSummaryData, WorkerError,
 };
-use zcash_client_memory::MemoryWalletDb;
-use zcash_keys::encoding::AddressCodec;
-use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
-use zcash_primitives::transaction::TxId;
+use crate::error::Error;
+use crate::validation::validate_confirmations_policy;
 
-pub type MemoryWallet<T> = Wallet<MemoryWalletDb<Network>, T>;
-pub type AccountId = <MemoryWalletDb<Network> as WalletRead>::AccountId;
-pub type NoteRef = <MemoryWalletDb<Network> as InputSource>::NoteRef;
-
-/// # A Zcash wallet
-///
-/// This is the main entry point for interacting with this library.
-/// For the most part you will only need to create and interact with a Wallet instance.
-///
-/// A wallet is a set of accounts that can be synchronized together with the blockchain.
-/// Once synchronized, the wallet can be used to propose, build and send transactions.
-///
-/// Create a new WebWallet with
-/// ```javascript
-/// const wallet = new WebWallet("main", "https://zcash-mainnet.chainsafe.dev", 10);
-/// ```
-///
-/// ## Adding Accounts
-///
-/// Accounts can be added by either importing a seed phrase or a Unified Full Viewing Key (UFVK).
-/// If you do import via a UFVK it is important that you also have access to the Unified Spending Key (USK) for that account otherwise the wallet will not be able to create transactions.
-///
-/// When importing an account you can also specify the block height at which the account was created. This can significantly reduce the time it takes to sync the account as the wallet will only scan for transactions after this height.
-/// Failing to provide a birthday height will result in extremely slow sync times as the wallet will need to scan the entire blockchain.
-///
-/// e.g.
-/// ```javascript
-/// const account_id = await wallet.create_account("...", 1, 2657762)
-///
-/// // OR
-///
-/// const account_id = await wallet.import_ufvk("...", 2657762)
-/// ``
-///
-/// ## Synchronizing
-///
-/// The wallet can be synchronized with the blockchain by calling the `sync` method. This will fetch compact blocks from the connected lightwalletd instance and scan them for transactions.
-/// The sync method uses a built-in strategy to determine which blocks is needs to download and scan in order to gain full knowledge of the balances for all accounts that are managed.
-///
-/// Syncing is a long running process and so is delegated to a WebWorker to prevent from blocking the main thread. It is safe to call other methods on the wallet during syncing although they may take
-/// longer than usual while they wait for a write-lock to be released.
-///
-/// ```javascript
-/// await wallet.sync();
-/// ```
-///
-/// ## Transacting
-///
-/// Sending a transaction is a three step process: proposing, authorizing, and sending.
-///
-/// A transaction proposal is created by calling `propose_transfer` with the intended recipient and amount. This will create a proposal object that describes which notes will be spent in order to fulfil this request.
-/// The proposal should be presented to the user for review before being authorized.
-///
-/// To authorize the transaction the caller must currently provide the seed phrase and account index of the account that will be used to sign the transaction. This method also perform the SNARK proving which is an expensive operation and performed in parallel by a series of WebWorkers.
-///
-/// Finally, A transaction can be sent to the network by calling `send_authorized_transactions` with the list of transaction IDs that were generated by the authorization step.
-///
-/// ## PCZT Transactions
-///
-/// PCZT (Partially Constructed Zcash Transaction)
-///
-/// 1. **`pczt_create`** - Creates a PCZT which designates how funds from this account can be spent to realize the requested transfer (does NOT sign, generate proofs, or send)
-/// 2. **`pczt_sign`** - Signs the PCZT using USK (should be done in secure environment)
-/// 3. **`pczt_prove`** - Creates and inserts proofs for the PCZT
-///
-/// The full flow looks like
-/// The full PCZT flow: `pczt_create` → `pczt_sign` → `pczt_prove` → `pczt_send`
-/// ```
-///
 #[wasm_bindgen]
-#[derive(Clone)]
 pub struct WebWallet {
-    inner: MemoryWallet<tonic_web_wasm_client::Client>,
-}
-
-impl WebWallet {
-    pub fn client(&self) -> CompactTxStreamerClient<tonic_web_wasm_client::Client> {
-        self.inner.client.clone()
-    }
-
-    pub fn inner_mut(&mut self) -> &mut MemoryWallet<tonic_web_wasm_client::Client> {
-        &mut self.inner
-    }
+    handle: DbWorkerHandle,
 }
 
 #[wasm_bindgen]
 impl WebWallet {
-    /// Create a new instance of a Zcash wallet for a given network. Only one instance should be created per page.
+    /// Spawn the DB worker, open the SQLite wallet inside it, and connect
+    /// to lightwalletd. Returns once the worker has successfully opened
+    /// the database and constructed the underlying [`crate::Wallet`]; any
+    /// error during VFS install, schema init, or wallet construction
+    /// surfaces here.
     ///
-    /// # Arguments
-    ///
-    /// * `network` - Must be one of "main" or "test"
-    /// * `lightwalletd_url` - Url of the lightwalletd instance to connect to (e.g. https://zcash-mainnet.chainsafe.dev)
-    /// * `min_confirmations` - Number of confirmations required before a transaction is considered final
-    /// * `db_bytes` - (Optional) UInt8Array of a serialized wallet database. This can be used to restore a wallet from a previous session that was serialized by `db_to_bytes`
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const wallet = new WebWallet("main", "https://zcash-mainnet.chainsafe.dev", 10);
-    /// ```
-    #[wasm_bindgen(constructor)]
-    pub fn new(
+    /// * `network` — "main" or "test".
+    /// * `db_name` — OPFS filename; the same name always re-opens the
+    ///   same database. Ignored on native test builds (in-memory only).
+    /// * `lightwalletd_url` — gRPC-web proxy in front of a lightwalletd
+    ///   instance (e.g. `https://lite.ycash.xyz`).
+    /// * `min_confirmations_trusted` / `min_confirmations_untrusted` —
+    ///   see [`zcash_client_backend::data_api::wallet::ConfirmationsPolicy`].
+    #[wasm_bindgen(js_name = create)]
+    pub async fn create(
         network: &str,
-        lightwalletd_url: &str,
+        db_name: String,
+        lightwalletd_url: String,
         min_confirmations_trusted: u32,
         min_confirmations_untrusted: u32,
-        db_bytes: Option<Box<[u8]>>,
     ) -> Result<WebWallet, Error> {
-        let network = Network::from_str(network)?;
+        let network: Network = network.parse()?;
         let min_confirmations = validate_confirmations_policy(
             min_confirmations_trusted,
             min_confirmations_untrusted,
             true,
         )
         .map_err(|_| Error::InvalidMinConformations)?;
-        let client = Client::new(lightwalletd_url.to_string());
 
-        let db = match db_bytes {
-            Some(bytes) => {
-                tracing::info!(
-                    "Serialized db was provided to constructor. Attempting to deserialize"
-                );
-                MemoryWalletDb::decode_new(bytes.as_ref(), network, PRUNING_DEPTH)?
-            }
-            None => MemoryWalletDb::new(network, PRUNING_DEPTH),
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        let backing = Backing::Opfs { name: db_name };
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        let backing = {
+            let _ = db_name;
+            Backing::InMemory
         };
 
-        Ok(Self {
-            inner: Wallet::new(db, client, network, min_confirmations)?,
-        })
+        let handle = spawn(backing, network, lightwalletd_url, min_confirmations)
+            .await
+            .map_err(err_to_error)?;
+
+        Ok(WebWallet { handle })
     }
 
-    /// Add a new account to the wallet using a given seed phrase
-    ///
-    /// # Arguments
-    ///
-    /// * `seed_phrase` - 24 word mnemonic seed phrase
-    /// * `account_hd_index` - [ZIP32](https://zips.z.cash/zip-0032) hierarchical deterministic index of the account
-    /// * `birthday_height` - Block height at which the account was created. The sync logic will assume no funds are send or received prior to this height which can VERY significantly reduce sync time
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const wallet = new WebWallet("main", "https://zcash-mainnet.chainsafe.dev", 10);
-    /// const account_id = await wallet.create_account("...", 1, 2657762)
-    /// ```
+    /// Round-trip probe. Retained for diagnostics; unused by the UI.
+    pub async fn ping(&self, nonce: u64) -> Result<u64, Error> {
+        self.handle.ping(nonce).await.map_err(err_to_error)
+    }
+
+    /// Register a spending account from a BIP-39 seed phrase. Routes
+    /// through the DB worker, which derives the USK + UFVK and calls
+    /// `Wallet::create_account`. Used by the browser-resident signing
+    /// backend (`BrowserSigningBackend`) — on the snap path, prefer
+    /// [`Self::create_account_sapling_efvk`] /
+    /// [`Self::create_account_full_efvk`], which keep the seed inside
+    /// the snap sandbox.
     pub async fn create_account(
         &self,
         account_name: &str,
@@ -179,66 +104,20 @@ impl WebWallet {
         account_hd_index: u32,
         birthday_height: Option<u32>,
     ) -> Result<u32, Error> {
-        tracing::info!("Create account called");
-        self.inner
+        self.handle
             .create_account(
-                account_name,
-                seed_phrase,
+                account_name.to_string(),
+                seed_phrase.to_string(),
                 account_hd_index,
                 birthday_height,
-                None,
             )
             .await
-            .map(|id| *id)
+            .map_err(err_to_error)
     }
 
-    /// Add a new account to the wallet by directly importing a Unified Full Viewing Key (UFVK)
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - [ZIP316](https://zips.z.cash/zip-0316) encoded UFVK
-    /// * `birthday_height` - Block height at which the account was created. The sync logic will assume no funds are send or received prior to this height which can VERY significantly reduce sync time
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const wallet = new WebWallet("main", "https://zcash-mainnet.chainsafe.dev", 10);
-    /// const account_id = await wallet.import_ufvk("...", 2657762)
-    /// ```
-    pub async fn create_account_ufvk(
-        &self,
-        account_name: &str,
-        encoded_ufvk: &str,
-        seed_fingerprint: SeedFingerprint,
-        account_hd_index: u32,
-        birthday_height: Option<u32>,
-    ) -> Result<u32, Error> {
-        let ufvk = UnifiedFullViewingKey::decode(&self.inner.network, encoded_ufvk)
-            .map_err(Error::KeyParse)?;
-        let derivation = Some(Zip32Derivation::new(
-            seed_fingerprint.into(),
-            zip32::AccountId::try_from(account_hd_index)?,
-        ));
-        self.inner
-            .import_ufvk(
-                account_name,
-                &ufvk,
-                AccountPurpose::Spending { derivation },
-                birthday_height,
-                None,
-            )
-            .await
-            .map(|id| *id)
-    }
-
-    /// Register a spending account from a raw Sapling `ExtendedFullViewingKey`
-    /// (169-byte ZIP-32 encoding). This is the Ycash-compatible replacement
-    /// for `create_account_ufvk` — the ZIP-316 bech32 encoding/decoding path
-    /// panics on Ycash networks, so the snap hands us the Sapling EFVK bytes
-    /// directly and we wrap them into a sapling-only in-memory UFVK here.
-    ///
-    /// The snap side lives in `packages/snap-ycash/src/rpc/getViewingKey.tsx`;
-    /// the caller is `SnapSigningBackend.importAccount` in the web wallet.
+    /// Import a Sapling-only account from a raw 169-byte ZIP-32
+    /// `ExtendedFullViewingKey`. Ycash-compatible (Ycash never activated
+    /// NU5, so ZIP-316 UA encoding is not available).
     pub async fn create_account_sapling_efvk(
         &self,
         account_name: &str,
@@ -247,38 +126,21 @@ impl WebWallet {
         account_hd_index: u32,
         birthday_height: Option<u32>,
     ) -> Result<u32, Error> {
-        let efvk = ::sapling::zip32::ExtendedFullViewingKey::read(&sapling_efvk_bytes[..])
-            .map_err(|e| Error::Generic(format!("Sapling EFVK decode: {e}")))?;
-        let ufvk = UnifiedFullViewingKey::from_sapling_extended_full_viewing_key(efvk)
-            .map_err(|e| Error::Generic(format!("UFVK from Sapling EFVK: {e}")))?;
-        let derivation = Some(Zip32Derivation::new(
-            seed_fingerprint.into(),
-            zip32::AccountId::try_from(account_hd_index)?,
-        ));
-        self.inner
-            .import_ufvk(
-                account_name,
-                &ufvk,
-                AccountPurpose::Spending { derivation },
+        self.handle
+            .create_account_sapling_efvk(
+                account_name.to_string(),
+                sapling_efvk_bytes.into_vec(),
+                seed_fingerprint,
+                account_hd_index,
                 birthday_height,
-                None,
             )
             .await
-            .map(|id| *id)
+            .map_err(err_to_error)
     }
 
-    /// Register a spending account from a Sapling `ExtendedFullViewingKey`
-    /// (169 bytes) **and** a transparent `AccountPubKey` (65 bytes:
-    /// chain code + compressed pubkey). Produces a UFVK with both components
-    /// so the wallet can derive shielded and transparent addresses for the
-    /// same account, enabling shieldAll / transparent receive on snap-backed
-    /// accounts.
-    ///
-    /// This is the transparent-capable upgrade of
-    /// `create_account_sapling_efvk`. The snap is expected to hand both blobs
-    /// across the sandbox boundary together (see `getViewingKey` in
-    /// `packages/snap-ycash/src/rpc/getViewingKey.tsx`), and the caller is
-    /// `SnapSigningBackend.importAccount` in the web wallet.
+    /// Import a Sapling + transparent account from a raw 169-byte Sapling
+    /// EFVK plus a 65-byte transparent `AccountPubKey`. Enables shieldAll
+    /// and transparent-receive on snap-backed accounts.
     pub async fn create_account_full_efvk(
         &self,
         account_name: &str,
@@ -288,569 +150,227 @@ impl WebWallet {
         account_hd_index: u32,
         birthday_height: Option<u32>,
     ) -> Result<u32, Error> {
-        let efvk = ::sapling::zip32::ExtendedFullViewingKey::read(&sapling_efvk_bytes[..])
-            .map_err(|e| Error::Generic(format!("Sapling EFVK decode: {e}")))?;
-        let t_bytes: [u8; 65] = transparent_account_pubkey_bytes[..]
-            .try_into()
-            .map_err(|_| {
-                Error::Generic(format!(
-                    "Transparent AccountPubKey must be 65 bytes, got {}",
-                    transparent_account_pubkey_bytes.len()
-                ))
-            })?;
-        let transparent =
-            ::zcash_transparent::keys::AccountPubKey::deserialize(&t_bytes).map_err(|e| {
-                Error::Generic(format!("Transparent AccountPubKey decode: {e:?}"))
-            })?;
-        let ufvk = UnifiedFullViewingKey::from_sapling_and_transparent(efvk, transparent)
-            .map_err(|e| Error::Generic(format!("UFVK from Sapling+transparent: {e}")))?;
-        let derivation = Some(Zip32Derivation::new(
-            seed_fingerprint.into(),
-            zip32::AccountId::try_from(account_hd_index)?,
-        ));
-        self.inner
-            .import_ufvk(
-                account_name,
-                &ufvk,
-                AccountPurpose::Spending { derivation },
+        self.handle
+            .create_account_full_efvk(
+                account_name.to_string(),
+                sapling_efvk_bytes.into_vec(),
+                transparent_account_pubkey_bytes.into_vec(),
+                seed_fingerprint,
+                account_hd_index,
                 birthday_height,
-                None,
             )
             .await
-            .map(|id| *id)
-    }
-
-    /// Add a new view-only account to the wallet by directly importing a Unified Full Viewing Key (UFVK)
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - [ZIP316](https://zips.z.cash/zip-0316) encoded UFVK
-    /// * `birthday_height` - Block height at which the account was created. The sync logic will assume no funds are send or received prior to this height which can VERY significantly reduce sync time
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const wallet = new WebWallet("main", "https://zcash-mainnet.chainsafe.dev", 10);
-    /// const account_id = await wallet.import_ufvk("...", 2657762)
-    /// ```
-    pub async fn create_account_view_ufvk(
-        &self,
-        account_name: &str,
-        encoded_ufvk: &str,
-        birthday_height: Option<u32>,
-    ) -> Result<u32, Error> {
-        let ufvk = UnifiedFullViewingKey::decode(&self.inner.network, encoded_ufvk)
-            .map_err(Error::KeyParse)?;
-
-        self.inner
-            .import_ufvk(
-                account_name,
-                &ufvk,
-                AccountPurpose::ViewOnly,
-                birthday_height,
-                None,
-            )
-            .await
-            .map(|id| *id)
-    }
-
-    ///
-    /// Start a background sync task which will fetch and scan blocks from the connected lighwalletd server
-    ///
-    /// IMPORTANT: This will spawn a new webworker which will handle the sync task. The sync task will continue to run in the background until the sync process is complete.
-    /// During this time the main thread will not block but certain wallet methods may temporarily block while the wallet is being written to during the sync.
-    ///
-    pub async fn sync(&self) -> Result<(), Error> {
-        assert!(!thread::is_web_worker_thread());
-
-        let db = self.inner.clone();
-
-        let sync_handler = thread::Builder::new()
-            .name("sync".to_string())
-            .spawn_async(|| async {
-                assert!(thread::is_web_worker_thread());
-                tracing::debug!(
-                    "Current num threads (wasm_thread) {}",
-                    rayon::current_num_threads()
-                );
-
-                let db = db;
-                // Convert error to String since Error isn't Send (contains JsValue)
-                db.sync().await.map_err(|e| e.to_string())
-            })
-            .unwrap_throw()
-            .join_async();
-
-        // sync_handler.await returns Result<Result<(), String>, Box<dyn Any + Send>>
-        // The outer Result is for the join (thread panics), inner is sync result
-        match sync_handler.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(err_string)) => {
-                tracing::error!("Sync error: {}", err_string);
-                Err(Error::Sync(err_string))
-            }
-            Err(panic_error) => {
-                let msg = format!("Sync thread panicked: {:?}", panic_error);
-                tracing::error!("{}", msg);
-                Err(Error::Sync(msg))
-            }
-        }
+            .map_err(err_to_error)
     }
 
     pub async fn get_wallet_summary(&self) -> Result<Option<WalletSummary>, Error> {
-        Ok(self.inner.get_wallet_summary().await?.map(Into::into))
-    }
-
-    /// Create a new transaction proposal to send funds to a given address
-    ///
-    /// Not this does NOT sign, generate a proof, or send the transaction. It will only craft the proposal which designates how notes from this account can be spent to realize the requested transfer.
-    ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The ID of the account in this wallet to send funds from
-    /// * `to_address` - [ZIP316](https://zips.z.cash/zip-0316) encoded address to send funds to
-    /// * `value` - Amount to send in Zatoshis (1 ZEC = 100_000_000 Zatoshis)
-    ///
-    /// # Returns
-    ///
-    /// A proposal object which can be inspected and later used to generate a valid transaction
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const proposal = await wallet.propose_transfer(1, "u18rakpts0de589sx9dkamcjms3apruqqax9k2s6e7zjxx9vv5kc67pks2trg9d3nrgd5acu8w8arzjjuepakjx38dyxl6ahd948w0mhdt9jxqsntan6px3ysz80s04a87pheg2mqvlzpehrgup7568nfd6ez23xd69ley7802dfvplnfn7c07vlyumcnfjul4pvv630ac336rjhjyak5", 100000000);
-    /// ```
-    pub async fn propose_transfer(
-        &self,
-        account_id: u32,
-        to_address: String,
-        value: u64,
-    ) -> Result<Proposal, Error> {
-        let to_address = ZcashAddress::try_from_encoded(&to_address)?;
-        let proposal = self
-            .inner
-            .propose_transfer(AccountId::from(account_id), to_address, value)
-            .await?;
-        Ok(proposal.into())
-    }
-
-    /// Generate a valid Zcash transaction from a given proposal
-    ///
-    /// IMPORTANT: This will spawn a new webworker which will handle the proving task which may take 10s of seconds
-    ///
-    /// # Arguments
-    ///
-    /// * `proposal` - A proposal object generated by `propose_transfer`
-    /// * `seed_phrase` - 24 word mnemonic seed phrase. This MUST correspond to the accountID used when creating the proposal.
-    /// * `account_hd_index` - [ZIP32](https://zips.z.cash/zip-0032) hierarchical deterministic index of the account. This MUST correspond to the accountID used when creating the proposal.
-    ///
-    /// # Returns
-    ///
-    /// A list of transaction IDs which can be used to track the status of the transaction on the network.
-    /// It is returned in a flattened form where each ID is 32 bytes.
-    /// The transactions themselves are stored within the wallet.
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const proposal = await wallet.propose_transfer(1, "u18rakpts0de589sx9dkamcjms3apruqqax9k2s6e7zjxx9vv5kc67pks2trg9d3nrgd5acu8w8arzjjuepakjx38dyxl6ahd948w0mhdt9jxqsntan6px3ysz80s04a87pheg2mqvlzpehrgup7568nfd6ez23xd69ley7802dfvplnfn7c07vlyumcnfjul4pvv630ac336rjhjyak5", 100000000);
-    /// const authorized_txns = await wallet.create_proposed_transactions(proposal, "...", 1);
-    /// ```
-    pub async fn create_proposed_transactions(
-        &self,
-        proposal: Proposal,
-        seed_phrase: &str,
-        account_hd_index: u32,
-    ) -> Result<Vec<u8>, Error> {
-        assert!(!thread::is_web_worker_thread());
-
-        let (usk, _) = usk_from_seed_str(seed_phrase, account_hd_index, &self.inner.network)?;
-        let db = self.inner.clone();
-
-        let sync_handler = thread::Builder::new()
-            .name("create_proposed_transaction".to_string())
-            .spawn_async(|| async move {
-                assert!(thread::is_web_worker_thread());
-                tracing::debug!(
-                    "Current num threads (wasm_thread) {}",
-                    rayon::current_num_threads()
-                );
-
-                let db = db;
-                let txids = db
-                    .create_proposed_transactions(proposal.into(), &usk)
-                    .await
-                    .unwrap_throw();
-                return txids;
-            })
-            .unwrap_throw()
-            .join_async();
-        let txids = sync_handler.await.unwrap();
-
-        let flattened_txid_bytes = txids.iter().flat_map(|&x| x.as_ref().clone()).collect();
-        Ok(flattened_txid_bytes)
-    }
-
-    /// Serialize the internal wallet database to bytes
-    ///
-    /// This should be used for persisting the wallet between sessions. The resulting byte array can be used to construct a new wallet instance.
-    /// Note this method is async and will block until a read-lock can be acquired on the wallet database
-    ///
-    /// # Returns
-    ///
-    /// A postcard encoded byte array of the wallet database
-    ///
-    pub async fn db_to_bytes(&self) -> Result<Box<[u8]>, Error> {
-        let bytes = self.inner.db_to_bytes().await?;
-        Ok(bytes.into_boxed_slice())
-    }
-
-    /// Send a list of authorized transactions to the network to be included in the blockchain
-    ///
-    /// These will be sent via the connected lightwalletd instance
-    ///
-    /// # Arguments
-    ///
-    /// * `txids` - A list of transaction IDs (typically generated by `create_proposed_transactions`). It is in flatten form which means it's just a concatination of the 32 byte IDs.
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const proposal = wallet.propose_transfer(1, "u18rakpts0de589sx9dkamcjms3apruqqax9k2s6e7zjxx9vv5kc67pks2trg9d3nrgd5acu8w8arzjjuepakjx38dyxl6ahd948w0mhdt9jxqsntan6px3ysz80s04a87pheg2mqvlzpehrgup7568nfd6ez23xd69ley7802dfvplnfn7c07vlyumcnfjul4pvv630ac336rjhjyak5", 100000000);
-    /// const authorized_txns = wallet.create_proposed_transactions(proposal, "...", 1);
-    /// await wallet.send_authorized_transactions(authorized_txns);
-    /// ```
-    pub async fn send_authorized_transactions(&self, txids: Vec<u8>) -> Result<(), Error> {
-        let txids = txids
-            .chunks(32)
-            .map(|txid| {
-                let txid_arr: [u8; 32] = txid.try_into().map_err(|_| Error::TxIdParse)?;
-                Ok(TxId::from_bytes(txid_arr))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        let txids = NonEmpty::from_vec(txids).ok_or(Error::TxIdParse)?;
-        self.inner.send_authorized_transactions(&txids).await
-    }
-
-    /// Get the current unified address for a given account. This is returned as a string in canonical encoding
-    ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The ID of the account to get the address for
-    ///
-    pub async fn get_current_address(&self, account_id: u32) -> Result<String, Error> {
-        let db = self.inner.db.read().await;
-        if let Some(address) = db.get_last_generated_address_matching(
-            account_id.into(),
-            UnifiedAddressRequest::ALLOW_ALL,
-        )? {
-            Ok(address.encode(&self.inner.network))
-        } else {
-            Err(Error::AccountNotFound(account_id))
-        }
-    }
-
-    /// Create a Shielding PCZT (Partially Constructed Zcash Transaction).
-    ///
-    /// A Proposal for shielding funds is created and the the PCZT is constructed for it
-    ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The ID of the account which transparent funds will be shielded.
-    ///
-    pub async fn pczt_shield(&self, account_id: u32) -> Result<Pczt, Error> {
-        self.inner
-            .pczt_shield(account_id.into())
+        Ok(self
+            .handle
+            .get_wallet_summary()
             .await
-            .map(Into::into)
+            .map_err(err_to_error)?
+            .map(Into::into))
     }
 
-    /// Shield every transparent UTXO for the given account into the
-    /// Sapling pool and broadcast the resulting transaction(s).
-    ///
-    /// Seed-phrase counterpart to [`Self::pczt_shield`], for the browser
-    /// signing backend: uses the classic `propose_shielding →
-    /// create_proposed_transactions → send_authorized_transactions`
-    /// pipeline inside a spawned worker, so the caller can pass the seed
-    /// directly without routing through PCZT.
-    ///
-    /// Proving is CPU-bound and can take tens of seconds; render progress
-    /// UI around this call.
-    pub async fn shield(
-        &self,
-        account_id: u32,
-        seed_phrase: &str,
-        account_hd_index: u32,
-    ) -> Result<(), Error> {
-        assert!(!thread::is_web_worker_thread());
-
-        let (usk, _) = usk_from_seed_str(seed_phrase, account_hd_index, &self.inner.network)?;
-        let proposal = self.inner.propose_shielding(account_id.into()).await?;
-        let inner = self.inner.clone();
-
-        let handle = thread::Builder::new()
-            .name("shield_worker".to_string())
-            .spawn_async(move || async move {
-                assert!(thread::is_web_worker_thread());
-                inner
-                    .create_proposed_transactions(proposal, &usk)
-                    .await
-                    .unwrap_throw()
-            })
-            .unwrap_throw()
-            .join_async();
-        let txids = handle.await.unwrap();
-
-        self.inner.send_authorized_transactions(&txids).await
+    /// Get the current Sapling shielded address for the given account,
+    /// encoded with the network's HRP (`ys`/`ytestsapling` on Ycash,
+    /// `zs`/`ztestsapling` on Zcash).
+    pub async fn get_current_address_sapling(&self, account_id: u32) -> Result<String, Error> {
+        self.handle
+            .get_current_address_sapling(account_id)
+            .await
+            .map_err(err_to_error)
     }
 
-    /// Creates a PCZT (Partially Constructed Zcash Transaction).
-    ///
-    /// A Proposal is created similar to `create_proposed_transactions` and then a PCZT is constructed from it.
-    /// Note: This does NOT sign, generate a proof, or send the transaction.
-    /// It will only craft the PCZT which designates how notes from this account can be spent to realize the requested transfer.
-    /// The PCZT will still need to be signed and proofs will need to be generated before sending.
-    ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The ID of the account in this wallet to send funds from
-    /// * `to_address` - [ZIP316](https://zips.z.cash/zip-0316) encoded address to send funds to
-    /// * `value` - Amount to send in Zatoshis (1 ZEC = 100_000_000 Zatoshis)
-    ///
+    pub async fn get_current_address_transparent(&self, account_id: u32) -> Result<String, Error> {
+        self.handle
+            .get_current_address_transparent(account_id)
+            .await
+            .map_err(err_to_error)
+    }
+
+    pub async fn get_latest_block(&self) -> Result<u64, Error> {
+        self.handle.get_latest_block().await.map_err(err_to_error)
+    }
+
+    pub async fn sync(&self) -> Result<(), Error> {
+        self.handle.sync().await.map_err(err_to_error)
+    }
+
+    /// Create a Ycash PCZT v4 spend from `account_id` to `to_address` for
+    /// `value` zatoshis. Runs `propose_transfer → create_pczt_from_proposal`
+    /// inside the DB worker; the returned PCZT still needs to be signed
+    /// (outside this wasm module, in the Snap) and proven
+    /// ([`Self::pczt_prove`]) before it can be sent.
     pub async fn pczt_create(
         &self,
         account_id: u32,
         to_address: String,
         value: u64,
     ) -> Result<Pczt, Error> {
-        let to_address = ZcashAddress::try_from_encoded(&to_address)?;
-        self.inner
-            .pczt_create(AccountId::from(account_id), to_address, value)
+        self.handle
+            .pczt_create(account_id, to_address, value)
             .await
-            .map(Into::into)
+            .map_err(err_to_error)
     }
 
-    /// Creates and inserts proofs for a PCZT.
-    ///
-    /// If there are Sapling spends, a ProofGenerationKey needs to be supplied. It can be derived from the UFVK.
-    ///
-    /// # Arguments
-    ///
-    /// * `pczt` - The PCZT that needs to be signed
-    /// * `sapling_proof_gen_key` - The Sapling proof generation key (needed only if there are Sapling spends)
-    ///
+    /// Run the Groth16 + halo2 prover over `pczt`. Runs inside the DB
+    /// worker (a Web Worker, where `Atomics.wait` is available to rayon);
+    /// no separate prove worker is spawned. Expect tens of seconds of CPU
+    /// time; render progress UI around the call.
     pub async fn pczt_prove(
         &self,
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
     ) -> Result<Pczt, Error> {
-        // Groth16 + halo2 proving uses rayon's par_iter under the hood,
-        // which blocks via `Atomics.wait`. That API is forbidden on the
-        // browser main thread, so proving MUST run inside a web worker —
-        // the same pattern `sync()` uses. Without this dispatch, pczt_prove
-        // hangs forever and the RuntimeError surfaces only after the user
-        // force-reloads.
-        assert!(!thread::is_web_worker_thread());
-        let inner = self.inner.clone();
-        let pczt_inner: ::pczt::Pczt = pczt.into();
-        let pgk_inner: Option<::sapling::ProofGenerationKey> =
-            sapling_proof_gen_key.map(Into::into);
-        let prove_handler = thread::Builder::new()
-            .name("pczt_prove".to_string())
-            .spawn_async(move || async move {
-                assert!(thread::is_web_worker_thread());
-                inner
-                    .pczt_prove(pczt_inner, pgk_inner)
-                    .await
-                    .map_err(|e| e.to_string())
-            })
-            .unwrap_throw()
-            .join_async();
-        match prove_handler.await {
-            Ok(Ok(proven)) => Ok(proven.into()),
-            Ok(Err(msg)) => Err(Error::PcztProve(msg)),
-            Err(panic) => Err(Error::PcztProve(format!(
-                "prover thread panicked: {:?}",
-                panic
-            ))),
-        }
+        let pgk: Option<::sapling::ProofGenerationKey> = sapling_proof_gen_key.map(Into::into);
+        self.handle
+            .pczt_prove(pczt, pgk)
+            .await
+            .map_err(err_to_error)
     }
 
+    /// Extract the signed, proven PCZT into a `v4` Zcash transaction,
+    /// persist it locally, and broadcast via lightwalletd.
     pub async fn pczt_send(&self, pczt: Pczt) -> Result<(), Error> {
-        self.inner.pczt_send(pczt.into()).await
+        self.handle.pczt_send(pczt).await.map_err(err_to_error)
     }
 
-    pub fn pczt_combine(&self, pczts: Vec<Pczt>) -> Result<Pczt, Error> {
-        self.inner
-            .pczt_combine(pczts.into_iter().map(Into::into).collect())
-            .map(Into::into)
+    /// Build a shielding PCZT that sweeps every transparent UTXO for the
+    /// given account into the Sapling pool. PCZT-shielding counterpart to
+    /// `pczt_create`; the result still needs to pass through
+    /// `pczt_prove → pczt_send`.
+    pub async fn pczt_shield(&self, account_id: u32) -> Result<Pczt, Error> {
+        self.handle
+            .pczt_shield(account_id)
+            .await
+            .map_err(err_to_error)
     }
 
-    /// Get the current unified address for a given account and extracts the transparent component. This is returned as a string in canonical encoding
-    ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The ID of the account to get the address for
-    ///
-    pub async fn get_current_address_transparent(&self, account_id: u32) -> Result<String, Error> {
-        let db = self.inner.db.read().await;
-        if let Some(address) = db.get_last_generated_address_matching(
-            account_id.into(),
-            UnifiedAddressRequest::ALLOW_ALL,
-        )? {
-            address
-                .transparent()
-                .map(|t| t.encode(&self.inner.network))
-                .ok_or_else(|| {
-                    Error::Generic(
-                        "Account has no transparent component (Sapling-only UFVK)".to_string(),
-                    )
-                })
-        } else {
-            Err(Error::AccountNotFound(account_id))
-        }
+    /// Autodetect the wallet's birthday by scanning for the first
+    /// transaction ever received at a given transparent address. Used by
+    /// the recovery UX during import; the lightwalletd call runs inside
+    /// the DB worker so the main thread never waits on gRPC.
+    pub async fn detect_birthday_from_transparent_address(
+        &self,
+        transparent_address: &str,
+    ) -> Result<Option<u32>, Error> {
+        self.handle
+            .detect_birthday_from_transparent_address(transparent_address.to_string())
+            .await
+            .map_err(err_to_error)
     }
 
-    /// Get the current Sapling shielded address for the given account, encoded
-    /// with the network's Sapling HRP (`zs`/`ztestsapling` on Zcash, `ys`/`ytestsapling`
-    /// on Ycash).
-    ///
-    /// This is the right entry point for networks that don't support Unified Addresses
-    /// (i.e. Ycash — NU5 never activated), where [`get_current_address`] would
-    /// panic attempting to encode a UA.
-    pub async fn get_current_address_sapling(&self, account_id: u32) -> Result<String, Error> {
-        let db = self.inner.db.read().await;
-        if let Some(address) = db.get_last_generated_address_matching(
-            account_id.into(),
-            UnifiedAddressRequest::ALLOW_ALL,
-        )? {
-            address
-                .sapling()
-                .map(|sa| zcash_keys::encoding::encode_payment_address_p(&self.inner.network, sa))
-                .ok_or(Error::AccountNotFound(account_id))
-        } else {
-            Err(Error::AccountNotFound(account_id))
-        }
+    /// Combine partially-constructed PCZTs from multiple roles into a
+    /// single PCZT. Pure CPU, but routed through the worker for surface
+    /// parity.
+    pub async fn pczt_combine(&self, pczts: Vec<Pczt>) -> Result<Pczt, Error> {
+        self.handle.pczt_combine(pczts).await.map_err(err_to_error)
     }
 
-    /// Get transaction history for an account
+    /// Fused `propose_transfer → create_proposed_transactions →
+    /// send_authorized_transactions` for the browser-resident signing
+    /// backend. Returns the flattened 32-byte txids.
     ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The ID of the account to get transaction history for
-    /// * `limit` - Maximum number of transactions to return (default: 50)
-    /// * `offset` - Number of transactions to skip for pagination (default: 0)
-    ///
-    /// # Returns
-    ///
-    /// A TransactionHistoryResponse containing the list of transactions, total count, and pagination info
-    ///
-    /// # Examples
-    ///
-    /// ```javascript
-    /// const history = await wallet.get_transaction_history(0, 50, 0);
-    /// console.log(history.transactions);
-    /// ```
+    /// The three steps are collapsed into one op so the non-serializable
+    /// `Proposal<StandardFeeRule, ReceivedNoteId>` never needs to cross
+    /// the DB-worker boundary. If a standalone propose / preview step is
+    /// ever required, swap this for a handle-based design (see the
+    /// `project_sqlite_step6` memo).
+    pub async fn send_transfer_from_seed(
+        &self,
+        account_id: u32,
+        to_address: String,
+        value: u64,
+        seed_phrase: &str,
+        account_hd_index: u32,
+    ) -> Result<Vec<u8>, Error> {
+        let txids = self
+            .handle
+            .send_transfer_from_seed(
+                account_id,
+                to_address,
+                value,
+                seed_phrase.to_string(),
+                account_hd_index,
+            )
+            .await
+            .map_err(err_to_error)?;
+        Ok(txids.into_iter().flat_map(|id| id.to_vec()).collect())
+    }
+
+    /// Shield every transparent UTXO belonging to `account_id` into the
+    /// Sapling pool and broadcast. Seed-phrase counterpart to
+    /// [`Self::pczt_shield`].
+    pub async fn shield(
+        &self,
+        account_id: u32,
+        seed_phrase: &str,
+        account_hd_index: u32,
+    ) -> Result<(), Error> {
+        self.handle
+            .shield_from_seed(account_id, seed_phrase.to_string(), account_hd_index)
+            .await
+            .map_err(err_to_error)
+    }
+
+    /// Paginated transaction history for an account. Runs a pair of SQL
+    /// queries inside the DB worker against the wallet's `v_transactions`
+    /// and `v_tx_outputs` views, so no rusqlite handle crosses the actor
+    /// boundary.
     pub async fn get_transaction_history(
         &self,
         account_id: u32,
         limit: Option<u32>,
         offset: Option<u32>,
-    ) -> Result<super::transaction_history::TransactionHistoryResponse, Error> {
-        let db = self.inner.db.read().await;
-        let chain_tip_height = self
-            .inner
-            .get_wallet_summary()
+    ) -> Result<TransactionHistoryResponse, Error> {
+        self.handle
+            .get_transaction_history(account_id, limit.unwrap_or(50), offset.unwrap_or(0))
             .await
-            .ok()
-            .flatten()
-            .map(|s| s.chain_tip_height().into());
-
-        super::transaction_history::extract_transaction_history(
-            &db,
-            account_id,
-            chain_tip_height,
-            limit.unwrap_or(50),
-            offset.unwrap_or(0),
-        )
+            .map_err(err_to_error)
     }
 
-    ///////////////////////////////////////////////////////////////////////////////////////
-    // lightwalletd gRPC methods
-    ///////////////////////////////////////////////////////////////////////////////////////
-
+    /// Delete all scanned wallet state and re-run the SQLite schema
+    /// migrations. Used by the "full resync" recovery flow: after
+    /// `reset()` returns, re-import the account via
+    /// [`Self::create_account`] / [`Self::create_account_sapling_efvk`] /
+    /// [`Self::create_account_full_efvk`] and call [`Self::sync`] to
+    /// rebuild the wallet from the birthday.
     ///
-    /// Get the highest known block height from the connected lightwalletd instance
-    ///
-    pub async fn get_latest_block(&self) -> Result<u64, Error> {
-        self.client()
-            .get_latest_block(ChainSpec {})
-            .await
-            .map(|response| response.into_inner().height)
-            .map_err(Error::from)
-    }
-
-    /// Detect the wallet birthday by querying for the first transaction to a transparent address.
-    ///
-    /// This queries the lightwalletd server for all transactions to the given transparent address
-    /// and returns the block height of the earliest transaction, minus a safety buffer.
-    ///
-    /// # Arguments
-    ///
-    /// * `transparent_address` - A transparent Zcash address (t-address)
-    ///
-    /// # Returns
-    ///
-    /// The detected birthday height, or None if no transactions were found.
-    /// Returns the earliest transaction height minus 100 blocks as a safety buffer.
-    ///
-    pub async fn detect_birthday_from_transparent_address(
-        &self,
-        transparent_address: &str,
-    ) -> Result<Option<u32>, Error> {
-        let mut client = self.client();
-
-        // Query from Sapling activation to current tip
-        let filter = TransparentAddressBlockFilter {
-            address: transparent_address.to_string(),
-            range: Some(BlockRange {
-                start: Some(BlockId {
-                    height: 419200, // Sapling activation height
-                    hash: vec![],
-                }),
-                end: Some(BlockId {
-                    height: u64::MAX,
-                    hash: vec![],
-                }),
-                pool_types: vec![], // Empty = all pools
-            }),
-        };
-
-        let response = client.get_taddress_txids(filter).await?;
-        let mut stream = response.into_inner();
-
-        // Find the minimum height from all returned transactions
-        let mut min_height: Option<u64> = None;
-        while let Some(raw_tx) = stream.try_next().await? {
-            let height = raw_tx.height;
-            min_height = Some(min_height.map_or(height, |m| m.min(height)));
-        }
-
-        // Return with 100-block safety buffer
-        Ok(min_height.map(|h| {
-            let safe_height = h.saturating_sub(100);
-            safe_height as u32
-        }))
+    /// The underlying OPFS file is cleared in place; no new file is
+    /// created and no existing `WebWallet` handle is invalidated.
+    pub async fn reset(&self) -> Result<(), Error> {
+        self.handle.reset().await.map_err(err_to_error)
     }
 }
 
+/// Convert a [`WorkerError`] to the bindgen-wide [`crate::error::Error`].
+fn err_to_error(e: WorkerError) -> Error {
+    match e {
+        WorkerError::Wallet(msg) => Error::Generic(msg),
+        other => Error::Generic(other.to_string()),
+    }
+}
+
+/// Structured balance summary for one account.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AccountBalance {
+    pub sapling_balance: u64,
+    pub orchard_balance: u64,
+    pub unshielded_balance: u64,
+    /// Change from sent transactions waiting for mining confirmation
+    pub pending_change: u64,
+    /// Received notes waiting for required confirmations to become spendable
+    pub pending_spendable: u64,
+}
+
+/// Wallet-wide summary: per-account balances plus sync progress.
 #[derive(Debug, Serialize, Deserialize)]
 #[wasm_bindgen(inspectable)]
 pub struct WalletSummary {
-    account_balances: Vec<(u32, AccountBalance)>,
+    pub(crate) account_balances: Vec<(u32, AccountBalance)>,
     pub chain_tip_height: u32,
     pub fully_scanned_height: u32,
-    // scan_progress: Option<Ratio<u64>>,
     pub next_sapling_subtree_index: u64,
     pub next_orchard_subtree_index: u64,
 }
@@ -863,48 +383,28 @@ impl WalletSummary {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AccountBalance {
-    pub sapling_balance: u64,
-    pub orchard_balance: u64,
-    pub unshielded_balance: u64,
-    /// Change from sent transactions waiting for mining confirmation
-    pub pending_change: u64,
-    /// Received notes waiting for required confirmations to become spendable
-    pub pending_spendable: u64,
-}
-
-impl From<zcash_client_backend::data_api::AccountBalance> for AccountBalance {
-    fn from(balance: zcash_client_backend::data_api::AccountBalance) -> Self {
-        AccountBalance {
-            sapling_balance: balance.sapling_balance().spendable_value().into(),
-            orchard_balance: balance.orchard_balance().spendable_value().into(),
-            unshielded_balance: balance.unshielded_balance().spendable_value().into(),
-            pending_change: balance.change_pending_confirmation().into(),
-            pending_spendable: balance.value_pending_spendability().into(),
+impl From<WalletSummaryData> for WalletSummary {
+    fn from(s: WalletSummaryData) -> Self {
+        WalletSummary {
+            account_balances: s
+                .account_balances
+                .into_iter()
+                .map(|(id, bal)| (id, bal_from_data(bal)))
+                .collect(),
+            chain_tip_height: s.chain_tip_height,
+            fully_scanned_height: s.fully_scanned_height,
+            next_sapling_subtree_index: s.next_sapling_subtree_index,
+            next_orchard_subtree_index: s.next_orchard_subtree_index,
         }
     }
 }
 
-impl<T> From<zcash_client_backend::data_api::WalletSummary<T>> for WalletSummary
-where
-    T: std::cmp::Eq + std::hash::Hash + std::ops::Deref<Target = u32> + Clone,
-{
-    fn from(summary: zcash_client_backend::data_api::WalletSummary<T>) -> Self {
-        let mut account_balances: Vec<_> = summary
-            .account_balances()
-            .iter()
-            .map(|(k, v)| (*(*k).clone().deref(), (*v).into()))
-            .collect();
-
-        account_balances.sort_by(|a, b| a.0.cmp(&b.0));
-
-        WalletSummary {
-            account_balances,
-            chain_tip_height: summary.chain_tip_height().into(),
-            fully_scanned_height: summary.fully_scanned_height().into(),
-            next_sapling_subtree_index: summary.next_sapling_subtree_index(),
-            next_orchard_subtree_index: summary.next_orchard_subtree_index(),
-        }
+fn bal_from_data(b: AccountBalanceData) -> AccountBalance {
+    AccountBalance {
+        sapling_balance: b.sapling_balance,
+        orchard_balance: b.orchard_balance,
+        unshielded_balance: b.unshielded_balance,
+        pending_change: b.pending_change,
+        pending_spendable: b.pending_spendable,
     }
 }

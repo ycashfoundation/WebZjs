@@ -36,7 +36,7 @@ export enum PcztTransferStatus {
 export const usePczt = (): IUsePczt => {
   const { state } = useWebZjsContext();
   const signingBackend = useSigningBackend();
-  const { flushDbToStore, syncStateWithWallet } = useWebZjsActions();
+  const { syncStateWithWallet } = useWebZjsActions();
 
   const [pcztTransferStatus, setPcztTransferStatus] = useState<PcztTransferStatus>(
     PcztTransferStatus.CHECK_WALLET,
@@ -69,9 +69,8 @@ export const usePczt = (): IUsePczt => {
         amountZats,
       );
 
-      // sendShielded already broadcasts; persist the wallet bytes so the
-      // pending transaction survives a tab crash.
-      await flushDbToStore();
+      // `sendShielded` already broadcast the tx. OPFS commits the write
+      // inside the DB worker, so there's nothing else to flush.
       setPcztTransferStatus(PcztTransferStatus.SEND_SUCCESSFUL);
       await syncStateWithWallet();
     } catch (error) {
@@ -98,7 +97,6 @@ export const usePczt = (): IUsePczt => {
     try {
       setPcztTransferStatus(PcztTransferStatus.CREATING_PCZT);
       await signingBackend.shieldAll(state.webWallet, accountId);
-      await flushDbToStore();
       setPcztTransferStatus(PcztTransferStatus.SEND_SUCCESSFUL);
       await syncStateWithWallet();
     } catch (error) {

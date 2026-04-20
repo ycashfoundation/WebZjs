@@ -137,8 +137,7 @@ function AccountSummary() {
   const { unshieldedBalance, shieldedBalance, totalPending } = useBalance();
   const { pendingTxs } = usePendingTransactions();
   const { state } = useWebZjsContext();
-  const { fullResync, flushDbToStore, syncStateWithWallet } =
-    useWebZjsActions();
+  const { fullResync, syncStateWithWallet } = useWebZjsActions();
   const { price: yecPrice } = useYecPrice();
   const signingBackend = useSigningBackend();
   const [birthdayBlock, setBirthdayBlock] = useState<string | undefined>();
@@ -179,9 +178,9 @@ function AccountSummary() {
           }
         },
       );
-      // Persist the post-broadcast DB (the shield is now "pending") and
-      // refresh balances so the user sees the transparent amount drop out.
-      await flushDbToStore();
+      // Refresh balances so the user sees the transparent amount drop
+      // out — OPFS commits the post-broadcast wallet state inside the DB
+      // worker, no explicit flush needed.
       await syncStateWithWallet();
       // Linger briefly on the success state, then fade back to idle. By the
       // time this timer fires, sync will have moved the funds into the
@@ -201,7 +200,6 @@ function AccountSummary() {
     state.webWallet,
     state.activeAccount,
     signingBackend,
-    flushDbToStore,
     syncStateWithWallet,
   ]);
 

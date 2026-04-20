@@ -1,9 +1,7 @@
 import { set, get } from 'idb-keyval';
 import { useCallback, useRef } from 'react';
-import { WebWallet } from '@chainsafe/webzjs-wallet';
 import { useWebZjsContext } from '../context/WebzjsContext';
 import { useSession } from '../context/SessionContext';
-import { MAINNET_LIGHTWALLETD_PROXY } from '../config/constants';
 import { useSigningBackend } from './signing/useSigningBackend';
 
 /**
@@ -21,18 +19,18 @@ interface WebzjsActions {
   >;
   /**
    * Ensure the wallet has an active account. If a prior account was restored
-   * from IndexedDB, simply marks it active. Otherwise creates a fresh account
-   * from the unlocked mnemonic at the given birthday (or the current tip).
+   * from the persisted OPFS DB, simply marks it active. Otherwise creates a
+   * fresh account from the unlocked mnemonic at the given birthday (or the
+   * current tip).
    */
   setupAccount: (birthdayHeight?: number) => Promise<void>;
   triggerRescan: () => Promise<void>;
-  flushDbToStore: () => Promise<void>;
   syncStateWithWallet: () => Promise<void>;
   /**
-   * Rebuilds the wallet from scratch starting at `customBirthday` (or the
-   * stored birthday). Old wallet is kept in state while the new one syncs; on
-   * success the new wallet replaces the old. Fails safe — on any error, the
-   * old wallet remains untouched.
+   * Wipes the current OPFS wallet DB and rebuilds it from scratch starting
+   * at `customBirthday` (or the stored birthday). Runs in place on the
+   * existing `WebWallet` instance via `wallet.reset()` — the same handle is
+   * preserved so consumers don't need to rebind.
    */
   fullResync: (customBirthday?: number) => Promise<void>;
 }
@@ -110,17 +108,6 @@ export function useWebZjsActions(): WebzjsActions {
     }
   }, [state.webWallet, dispatch]);
 
-  const flushDbToStore = useCallback(async () => {
-    if (!state.webWallet) return;
-    try {
-      const bytes = await state.webWallet.db_to_bytes();
-      await set('wallet', bytes);
-    } catch (error) {
-      console.error('Error flushing DB to store:', error);
-      dispatch({ type: 'set-error', payload: String(error) });
-    }
-  }, [state.webWallet, dispatch]);
-
   const setupAccount = useCallback(
     async (birthdayHeight?: number) => {
       if (!state.webWallet) return;
@@ -128,9 +115,9 @@ export function useWebZjsActions(): WebzjsActions {
         throw new Error('Wallet must be unlocked to set up an account');
       }
 
-      // Was a prior account restored from the IndexedDB-serialized wallet
-      // bytes? If so just mark it active — the WebWallet already has the
-      // account materialized internally.
+      // Was a prior account restored from the persisted OPFS DB? If so
+      // just mark it active — the WebWallet already has the account
+      // materialized internally.
       const existingSummary = await state.webWallet.get_wallet_summary();
       if (
         existingSummary &&
@@ -161,7 +148,6 @@ export function useWebZjsActions(): WebzjsActions {
       );
       dispatch({ type: 'set-active-account', payload: accountId });
       await syncStateWithWallet();
-      await flushDbToStore();
     },
     [
       state.webWallet,
@@ -169,7 +155,6 @@ export function useWebZjsActions(): WebzjsActions {
       signingBackend,
       dispatch,
       syncStateWithWallet,
-      flushDbToStore,
     ],
   );
 
@@ -206,7 +191,6 @@ export function useWebZjsActions(): WebzjsActions {
                 baseDelay: 3000,
               });
               await syncStateWithWallet();
-              await flushDbToStore();
             } finally {
               dispatch({ type: 'set-sync-in-progress', payload: false });
             }
@@ -226,7 +210,6 @@ export function useWebZjsActions(): WebzjsActions {
         baseDelay: 3000,
       });
       await syncStateWithWallet();
-      await flushDbToStore();
     } catch (err) {
       console.warn('Sync failed (will retry next interval):', err);
     } finally {
@@ -238,7 +221,6 @@ export function useWebZjsActions(): WebzjsActions {
     state.syncInProgress,
     dispatch,
     syncStateWithWallet,
-    flushDbToStore,
   ]);
 
   const fullResync = useCallback(
@@ -257,6 +239,7 @@ export function useWebZjsActions(): WebzjsActions {
         });
         return;
       }
+      if (!state.webWallet) return;
 
       _fullResyncActive = true;
       dispatch({ type: 'set-sync-in-progress', payload: true });
@@ -273,26 +256,21 @@ export function useWebZjsActions(): WebzjsActions {
           await set('birthdayBlock', String(customBirthday));
         }
 
-        console.info(
-          'Full resync: Creating fresh wallet (old wallet preserved as fallback)',
-        );
-        const freshWallet = new WebWallet(
-          'main',
-          MAINNET_LIGHTWALLETD_PROXY,
-          1,
-          1,
-          null,
-        );
+        // Wipe every scanned note/block/tx row in the OPFS DB and rerun
+        // migrations. The in-browser `WebWallet` handle stays valid — the
+        // worker owns the connection and the reset happens inside it.
+        console.info('Full resync: wiping wallet DB via reset()');
+        await state.webWallet.reset();
 
         console.info(
           `Full resync: Re-importing account with birthday ${birthdayBlock}`,
         );
         const resolvedBirthday =
-          birthdayBlock ?? Number(await freshWallet.get_latest_block());
+          birthdayBlock ?? Number(await state.webWallet.get_latest_block());
         const accountId = await withRetry(
           () =>
             signingBackend.importAccount(
-              freshWallet,
+              state.webWallet!,
               'account-0',
               resolvedBirthday,
             ),
@@ -307,10 +285,10 @@ export function useWebZjsActions(): WebzjsActions {
         const MAX_CONSECUTIVE_FAILURES = 4;
         for (let round = 1; round <= MAX_SYNC_ROUNDS; round++) {
           try {
-            await freshWallet.sync();
+            await state.webWallet.sync();
             consecutiveFailures = 0;
-            const summary = await freshWallet.get_wallet_summary();
-            const chainTip = Number(await freshWallet.get_latest_block());
+            const summary = await state.webWallet.get_wallet_summary();
+            const chainTip = Number(await state.webWallet.get_latest_block());
             const scannedHeight = summary?.fully_scanned_height ?? 0;
             console.info(
               `Full resync: scanned to ${scannedHeight} / ${chainTip} (round ${round})`,
@@ -332,37 +310,38 @@ export function useWebZjsActions(): WebzjsActions {
           }
         }
 
-        dispatch({ type: 'set-web-wallet', payload: freshWallet });
         dispatch({ type: 'set-active-account', payload: accountId });
 
-        const summary = await freshWallet.get_wallet_summary();
+        const summary = await state.webWallet.get_wallet_summary();
         if (summary) dispatch({ type: 'set-summary', payload: summary });
 
-        const chainHeight = await freshWallet.get_latest_block();
+        const chainHeight = await state.webWallet.get_latest_block();
         if (chainHeight) {
           dispatch({ type: 'set-chain-height', payload: chainHeight });
         }
 
-        const bytes = await freshWallet.db_to_bytes();
-        await set('wallet', bytes);
-
         console.info('Full resync: Complete');
       } catch (err: unknown) {
-        console.error('Full resync failed (old wallet preserved):', err);
+        console.error('Full resync failed:', err);
         dispatch({ type: 'set-error', payload: String(err) });
       } finally {
         _fullResyncActive = false;
         dispatch({ type: 'set-sync-in-progress', payload: false });
       }
     },
-    [state.syncInProgress, sessionStatus, signingBackend, dispatch],
+    [
+      state.webWallet,
+      state.syncInProgress,
+      sessionStatus,
+      signingBackend,
+      dispatch,
+    ],
   );
 
   return {
     getAccountData,
     setupAccount,
     triggerRescan,
-    flushDbToStore,
     syncStateWithWallet,
     fullResync,
   };

@@ -1,17 +1,14 @@
 // Copyright 2024 ChainSafe Systems
 // SPDX-License-Identifier: Apache-2.0, MIT
 
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use wasm_bindgen::prelude::*;
-use zcash_client_backend::data_api::TransactionStatus;
-use zcash_client_memory::MemoryWalletDb;
-use zcash_protocol::consensus::BlockHeight;
-use zcash_protocol::TxId;
+//! Plain-data types for paginated transaction history that the
+//! [`crate::db::worker`] actor populates and hands back to
+//! [`super::wallet::WebWallet::get_transaction_history`]. The SQL query
+//! that produces the rows lives in `db::worker::query_transaction_history`
+//! — this module is just the wasm-bindgen wire shape.
 
-use super::wallet::AccountId;
-use crate::error::Error;
-use webzjs_common::Network;
+use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 /// The type of transaction
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -37,30 +34,34 @@ pub enum TransactionStatusType {
     Expired,
 }
 
-/// A single transaction history entry
+/// A single transaction history entry.
+///
+/// Fields are `pub(crate)` so the SQLite-backed worker in [`crate::db::worker`]
+/// can build entries directly without a separate intermediate type. Public
+/// access from JS is through the `#[wasm_bindgen]` getters below.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[wasm_bindgen(inspectable)]
 pub struct TransactionHistoryEntry {
     /// Hex-encoded transaction ID
-    txid: String,
+    pub(crate) txid: String,
     /// Type of transaction (Received, Sent, or Shielded)
-    tx_type: TransactionType,
+    pub(crate) tx_type: TransactionType,
     /// Net value change in zatoshis (positive = received, negative = sent)
-    value: i64,
+    pub(crate) value: i64,
     /// Fee paid in zatoshis (only for sent transactions)
-    fee: Option<u64>,
+    pub(crate) fee: Option<u64>,
     /// Block height where transaction was mined
-    block_height: Option<u32>,
+    pub(crate) block_height: Option<u32>,
     /// Number of confirmations
-    confirmations: u32,
+    pub(crate) confirmations: u32,
     /// Transaction status
-    status: TransactionStatusType,
+    pub(crate) status: TransactionStatusType,
     /// Decoded memo text (UTF-8)
-    memo: Option<String>,
+    pub(crate) memo: Option<String>,
     /// Estimated timestamp (seconds since Unix epoch)
-    timestamp: Option<u64>,
+    pub(crate) timestamp: Option<u64>,
     /// Pool type: "sapling", "orchard", "transparent", or "mixed"
-    pool: String,
+    pub(crate) pool: String,
 }
 
 #[wasm_bindgen]
@@ -116,13 +117,18 @@ impl TransactionHistoryEntry {
     }
 }
 
-/// Response containing paginated transaction history
+/// Response containing paginated transaction history.
+///
+/// See the note on [`TransactionHistoryEntry`] for why the fields are
+/// `pub(crate)` — the SQLite-backed worker constructs values of this type
+/// directly and ships them across the actor boundary, rather than going
+/// through a separate data-only twin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[wasm_bindgen(inspectable)]
 pub struct TransactionHistoryResponse {
-    transactions: Vec<TransactionHistoryEntry>,
-    total_count: u32,
-    has_more: bool,
+    pub(crate) transactions: Vec<TransactionHistoryEntry>,
+    pub(crate) total_count: u32,
+    pub(crate) has_more: bool,
 }
 
 #[wasm_bindgen]
@@ -141,267 +147,4 @@ impl TransactionHistoryResponse {
     pub fn has_more(&self) -> bool {
         self.has_more
     }
-}
-
-/// Internal struct to accumulate transaction data
-#[derive(Debug, Default)]
-struct TxAccumulator {
-    received_value: u64,
-    sent_value: u64,
-    fee: Option<u64>,
-    memos: Vec<String>,
-    pools: std::collections::HashSet<String>,
-    block_height: Option<BlockHeight>,
-    status: Option<TransactionStatus>,
-    expiry_height: Option<BlockHeight>,
-}
-
-/// Extract transaction history from the wallet database
-pub fn extract_transaction_history(
-    db: &MemoryWalletDb<Network>,
-    account_id: u32,
-    chain_tip_height: Option<u32>,
-    limit: u32,
-    offset: u32,
-) -> Result<TransactionHistoryResponse, Error> {
-    let account_id_typed = AccountId::from(account_id);
-
-    // Accumulate data by txid
-    let mut tx_map: BTreeMap<TxId, TxAccumulator> = BTreeMap::new();
-
-    // Process received notes for this account
-    for note in db.received_notes().iter() {
-        if note.account_id() != account_id_typed {
-            continue;
-        }
-
-        let txid = note.txid();
-        let entry = tx_map.entry(txid).or_default();
-
-        // Add received value
-        entry.received_value += note.note().value().into_u64();
-
-        // Determine pool from note type
-        let pool = match note.note() {
-            zcash_client_backend::wallet::Note::Sapling(_) => "sapling",
-            zcash_client_backend::wallet::Note::Orchard(_) => "orchard",
-        };
-        entry.pools.insert(pool.to_string());
-
-        // Extract memo text
-        if let zcash_protocol::memo::Memo::Text(text) = note.memo() {
-            let memo_str = text.to_string();
-            if !memo_str.is_empty() && !entry.memos.contains(&memo_str) {
-                entry.memos.push(memo_str);
-            }
-        }
-
-        // Get transaction status from tx_table
-        if let Some(tx_entry) = db.tx_table().get(&txid) {
-            entry.status = Some(tx_entry.status());
-            entry.block_height = tx_entry.mined_height();
-            entry.expiry_height = tx_entry.expiry_height();
-        }
-    }
-
-    // Process transparent received outputs for this account. These are
-    // inbound UTXOs that were paid to the account's transparent addresses —
-    // without this pass, transparent receives are invisible in the history
-    // UI (balance still reports them correctly, but the user can't see the
-    // individual txs).
-    for (_outpoint, utxo) in db.transparent_received_outputs().iter() {
-        if utxo.account_id() != account_id_typed {
-            continue;
-        }
-
-        let txid = utxo.transaction_id();
-        let entry = tx_map.entry(txid).or_default();
-        entry.received_value += utxo.value();
-        entry.pools.insert("transparent".to_string());
-
-        // Populate status/height from tx_table if we haven't already seen
-        // this txid via a shielded note above. For mixed-pool txs the
-        // shielded pass wins, which is fine — the data is the same.
-        if entry.status.is_none() {
-            if let Some(tx_entry) = db.tx_table().get(&txid) {
-                entry.status = Some(tx_entry.status());
-                entry.block_height = tx_entry.mined_height();
-                entry.expiry_height = tx_entry.expiry_height();
-            }
-        }
-    }
-
-    // Process sent notes for this account
-    for (sent_note_id, sent_note) in db.sent_notes().iter() {
-        if sent_note.from_account_id() != account_id_typed {
-            continue;
-        }
-
-        let txid = *sent_note_id.txid();
-        let entry = tx_map.entry(txid).or_default();
-
-        // Add sent value
-        entry.sent_value += sent_note.value().into_u64();
-
-        // Determine pool from recipient
-        let pool = match sent_note.to() {
-            zcash_client_backend::wallet::Recipient::External { output_pool, .. } => {
-                match output_pool {
-                    zcash_protocol::PoolType::Transparent => "transparent",
-                    zcash_protocol::PoolType::Shielded(
-                        zcash_protocol::ShieldedProtocol::Sapling,
-                    ) => "sapling",
-                    zcash_protocol::PoolType::Shielded(
-                        zcash_protocol::ShieldedProtocol::Orchard,
-                    ) => "orchard",
-                }
-            }
-            zcash_client_backend::wallet::Recipient::EphemeralTransparent { .. } => "transparent",
-            zcash_client_backend::wallet::Recipient::InternalAccount { note, .. } => {
-                match note.as_ref() {
-                    zcash_client_backend::wallet::Note::Sapling(_) => "sapling",
-                    zcash_client_backend::wallet::Note::Orchard(_) => "orchard",
-                }
-            }
-        };
-        entry.pools.insert(pool.to_string());
-
-        // Extract memo from sent note
-        if let zcash_protocol::memo::Memo::Text(text) = sent_note.memo() {
-            let memo_str = text.to_string();
-            if !memo_str.is_empty() && !entry.memos.contains(&memo_str) {
-                entry.memos.push(memo_str);
-            }
-        }
-
-        // Get transaction status from tx_table if not already set
-        if entry.status.is_none() {
-            if let Some(tx_entry) = db.tx_table().get(&txid) {
-                entry.status = Some(tx_entry.status());
-                entry.block_height = tx_entry.mined_height();
-                entry.expiry_height = tx_entry.expiry_height();
-            }
-        }
-    }
-
-    // Convert accumulated data to transaction entries
-    let mut transactions: Vec<TransactionHistoryEntry> = tx_map
-        .into_iter()
-        .map(|(txid, acc)| {
-            let net_value = acc.received_value as i64 - acc.sent_value as i64;
-
-            // Determine transaction type
-            let tx_type = if net_value > 0 {
-                TransactionType::Received
-            } else if net_value < 0 {
-                TransactionType::Sent
-            } else if acc.received_value > 0 && acc.sent_value > 0 {
-                // Net zero but both received and sent - internal transfer
-                TransactionType::Shielded
-            } else {
-                // Default to received if we can't determine
-                TransactionType::Received
-            };
-
-            // Determine pool type
-            let pool = if acc.pools.len() > 1 {
-                "mixed".to_string()
-            } else {
-                acc.pools
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| "unknown".to_string())
-            };
-
-            // Calculate confirmations
-            let block_height_u32 = acc.block_height.map(|h| u32::from(h));
-            let confirmations = match (block_height_u32, chain_tip_height) {
-                (Some(tx_height), Some(tip_height)) if tip_height >= tx_height => {
-                    tip_height - tx_height + 1
-                }
-                _ => 0,
-            };
-
-            // Determine status
-            let status = match acc.status {
-                Some(TransactionStatus::Mined(_)) => TransactionStatusType::Confirmed,
-                Some(TransactionStatus::NotInMainChain) => {
-                    // Check if expired
-                    if let (Some(expiry), Some(tip)) = (acc.expiry_height, chain_tip_height) {
-                        if u32::from(expiry) <= tip {
-                            TransactionStatusType::Expired
-                        } else {
-                            TransactionStatusType::Pending
-                        }
-                    } else {
-                        TransactionStatusType::Pending
-                    }
-                }
-                _ => TransactionStatusType::Pending,
-            };
-
-            // Combine memos
-            let memo = if acc.memos.is_empty() {
-                None
-            } else {
-                Some(acc.memos.join("\n"))
-            };
-
-            // Get actual timestamp from block data (not estimated)
-            let timestamp = acc
-                .block_height
-                .and_then(|height| db.get_block_time(height))
-                .map(|t| t as u64);
-
-            TransactionHistoryEntry {
-                // `TxId::Display` emits the byte-reversed hex that block
-                // explorers and RPC methods expect. `hex::encode(as_ref())`
-                // would emit the raw in-memory bytes, which look right but
-                // don't resolve anywhere.
-                txid: txid.to_string(),
-                tx_type,
-                value: match tx_type {
-                    TransactionType::Shielded => acc.received_value as i64,
-                    _ => net_value,
-                },
-                fee: acc.fee,
-                block_height: block_height_u32,
-                confirmations,
-                status,
-                memo,
-                timestamp,
-                pool,
-            }
-        })
-        .collect();
-
-    // Sort by block height descending (newest first), with pending at the top
-    transactions.sort_by(|a, b| {
-        match (a.block_height, b.block_height) {
-            (None, None) => std::cmp::Ordering::Equal,
-            (None, Some(_)) => std::cmp::Ordering::Less, // Pending first
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (Some(a_height), Some(b_height)) => b_height.cmp(&a_height), // Descending
-        }
-    });
-
-    let total_count = transactions.len() as u32;
-
-    // Apply pagination
-    let offset_usize = offset as usize;
-    let limit_usize = limit as usize;
-
-    let paginated: Vec<TransactionHistoryEntry> = transactions
-        .into_iter()
-        .skip(offset_usize)
-        .take(limit_usize)
-        .collect();
-
-    let has_more = (offset_usize + paginated.len()) < total_count as usize;
-
-    Ok(TransactionHistoryResponse {
-        transactions: paginated,
-        total_count,
-        has_more,
-    })
 }

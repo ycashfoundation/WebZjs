@@ -4,6 +4,9 @@
 // end-to-end sync canary). For a ZEC build, swap in a Zcash lightwalletd
 // proxy URL via the env var.
 export const MAINNET_LIGHTWALLETD_PROXY = process.env.LIGHTWALLETD_PROXY || 'https://lite.ycash.xyz';
+
+// OPFS filename the WebWallet re-opens on each page load.
+export const SQLITE_DB_FILENAME = 'webzjs-wallet.sqlite3';
 export const ZATOSHI_PER_YEC = 1e8;
 export const RESCAN_INTERVAL = 35000;          // 35s sync interval
 // Ycash forked from Zcash at this height (see ycashd/src/chainparams.cpp).

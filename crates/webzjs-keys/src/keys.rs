@@ -49,8 +49,8 @@ impl SeedFingerprint {
     /// consumer is a browser-side signing backend that keeps the phrase itself
     /// outside the Rust heap.
     pub fn from_seed_phrase(seed_phrase: &str) -> Result<SeedFingerprint, Error> {
-        let mnemonic = <Mnemonic<English>>::from_phrase(seed_phrase)
-            .map_err(|_| Error::InvalidSeedPhrase)?;
+        let mnemonic =
+            <Mnemonic<English>>::from_phrase(seed_phrase).map_err(|_| Error::InvalidSeedPhrase)?;
         let seed = mnemonic.to_seed("");
         Ok(Self {
             inner: zip32::fingerprint::SeedFingerprint::from_seed(&seed)
@@ -153,8 +153,8 @@ mod tests {
         let bytes_a = pgk.to_bytes();
         assert_eq!(bytes_a.len(), 64, "PGK serialization must be 64 bytes");
 
-        let restored = ProofGenerationKey::from_bytes(&bytes_a)
-            .expect("round-trip decode must succeed");
+        let restored =
+            ProofGenerationKey::from_bytes(&bytes_a).expect("round-trip decode must succeed");
         let bytes_b = restored.to_bytes();
         assert_eq!(bytes_a, bytes_b, "PGK bytes must round-trip exactly");
     }
@@ -258,8 +258,8 @@ impl UnifiedSpendingKey {
         hd_index: u32,
     ) -> Result<UnifiedSpendingKey, Error> {
         let network = Network::from_str(network)?;
-        let mnemonic = <Mnemonic<English>>::from_phrase(seed_phrase)
-            .map_err(|_| Error::InvalidSeedPhrase)?;
+        let mnemonic =
+            <Mnemonic<English>>::from_phrase(seed_phrase).map_err(|_| Error::InvalidSeedPhrase)?;
         let seed = mnemonic.to_seed("");
         Ok(Self {
             inner: zcash_keys::keys::UnifiedSpendingKey::from_seed(

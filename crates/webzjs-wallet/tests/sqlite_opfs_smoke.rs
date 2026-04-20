@@ -7,7 +7,6 @@
 //! — which can only be true if the schema state actually persisted across
 //! connection open/close cycles.
 
-#![cfg(feature = "sqlite-db")]
 #![cfg(all(target_family = "wasm", target_os = "unknown"))]
 
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
@@ -35,8 +34,7 @@ async fn opfs_open_migrate_persist() {
         let mut db = SqliteWalletDb::open_opfs(&name, Network::MainNetwork)
             .await
             .expect("first open_opfs");
-        init_wallet_db(db.inner_mut(), None)
-            .expect("first init_wallet_db");
+        init_wallet_db(db.inner_mut(), None).expect("first init_wallet_db");
         // db is dropped at end of scope; the rusqlite Connection is closed.
     }
 
@@ -50,7 +48,6 @@ async fn opfs_open_migrate_persist() {
         let mut db = SqliteWalletDb::open_opfs(&name, Network::MainNetwork)
             .await
             .expect("second open_opfs");
-        init_wallet_db(db.inner_mut(), None)
-            .expect("second init_wallet_db (idempotent)");
+        init_wallet_db(db.inner_mut(), None).expect("second init_wallet_db (idempotent)");
     }
 }

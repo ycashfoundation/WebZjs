@@ -4,9 +4,7 @@
 use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use zcash_protocol::consensus::{
-    self, Parameters, YCASH_MAIN_NETWORK, YCASH_TEST_NETWORK,
-};
+use zcash_protocol::consensus::{self, Parameters, YCASH_MAIN_NETWORK, YCASH_TEST_NETWORK};
 
 /// Network identifier for the Ycash chain.
 ///

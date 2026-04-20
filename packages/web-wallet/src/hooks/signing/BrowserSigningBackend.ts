@@ -2,12 +2,14 @@ import { WebWallet } from '@chainsafe/webzjs-wallet';
 import { SigningBackend, ShieldStage } from './SigningBackend';
 
 /**
- * Browser-resident signing backend. Holds a BIP39 mnemonic in memory for the
- * lifetime of the unlocked session. Uses WebZjs's one-shot
- * `propose_transfer → create_proposed_transactions → send_authorized_transactions`
- * pipeline rather than PCZT — that classic path bundles build, prove, and
- * sign into a single call that takes the seed phrase directly, which is
- * exactly what we want when the seed lives in-process anyway.
+ * Browser-resident signing backend. Holds a BIP39 mnemonic in memory for
+ * the lifetime of the unlocked session. The SQLite-backed wallet fuses
+ * `propose_transfer → create_proposed_transactions →
+ * send_authorized_transactions` into a single DB-worker op
+ * (`send_transfer_from_seed`) so the non-serializable
+ * `Proposal<StandardFeeRule, ReceivedNoteId>` never has to cross the
+ * actor boundary — see `project_sqlite_step6` in memory for the design
+ * note.
  */
 export class BrowserSigningBackend implements SigningBackend {
   readonly label = 'browser';
@@ -36,21 +38,15 @@ export class BrowserSigningBackend implements SigningBackend {
     toAddress: string,
     amountZats: bigint,
   ): Promise<Uint8Array> {
-    const proposal = await wallet.propose_transfer(
+    // Takes tens of seconds on a cold page — the caller's UI should
+    // render a progress indicator around this call.
+    return wallet.send_transfer_from_seed(
       accountId,
       toAddress,
       amountZats,
-    );
-    // `create_proposed_transactions` spawns a worker internally for the
-    // Groth16 proving step and can take tens of seconds on a cold page —
-    // the caller's UI should render a progress indicator around this call.
-    const txids = await wallet.create_proposed_transactions(
-      proposal,
       this.mnemonic,
       this.accountHdIndex,
     );
-    await wallet.send_authorized_transactions(txids);
-    return txids;
   }
 
   async shieldAll(

@@ -1,11 +1,10 @@
-//! Database backends for [`crate::Wallet`].
+//! SQLite-backed storage for [`crate::Wallet`].
 //!
-//! The default backend is [`zcash_client_memory::MemoryWalletDb`]. The optional
-//! `sqlite-db` feature adds [`sqlite::SqliteWalletDb`], a wasm-capable
-//! SQLite-backed store.
+//! The wallet stores on-disk state in a wasm-capable
+//! [`zcash_client_sqlite::WalletDb`] (sahpool OPFS on wasm, file-path or
+//! `:memory:` on native). All SQLite operations are serialized through
+//! the single-owner [`worker`] actor — see its module docs for the
+//! threading story.
 
-#[cfg(feature = "sqlite-db")]
 pub mod sqlite;
-
-#[cfg(feature = "sqlite-db")]
 pub mod worker;

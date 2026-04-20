@@ -45,7 +45,7 @@ use zcash_client_backend::proto::service::{
 };
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_backend::zip321::{Payment, TransactionRequest};
-use zcash_client_memory::{MemBlockCache, MemoryWalletDb};
+use zcash_client_memory::MemBlockCache;
 use zcash_keys::keys::{UnifiedFullViewingKey, UnifiedSpendingKey};
 use zcash_primitives::transaction::fees::FeeRule;
 use zcash_primitives::transaction::TxId;
@@ -106,15 +106,6 @@ impl<W, T: Clone> Clone for Wallet<W, T> {
             target_note_count: self.target_note_count,
             min_split_output_value: self.min_split_output_value,
         }
-    }
-}
-
-impl<P: Parameters, T> Wallet<MemoryWalletDb<P>, T> {
-    // Encodes the MemoryWallet into protobuf bytes
-    pub async fn db_to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut memory_wallet_bytes = Vec::new();
-        self.db.read().await.encode(&mut memory_wallet_bytes)?;
-        Ok(memory_wallet_bytes)
     }
 }
 
@@ -338,7 +329,7 @@ where
                 .get_target_and_anchor_heights(self.min_confirmations.trusted())?
         );
         let mut db = self.db.write().await;
-        let proposal = propose_transfer::<_, _, _,_, <W as WalletCommitmentTrees>::Error>(
+        let proposal = propose_transfer::<_, _, _, _, <W as WalletCommitmentTrees>::Error>(
             &mut *db,
             &self.network,
             account_id,
@@ -368,7 +359,7 @@ where
         let transactions = create_proposed_transactions::<
             _,
             _,
-            <MemoryWalletDb<Network> as InputSource>::Error,
+            <W as InputSource>::Error,
             _,
             <StandardFeeRule as FeeRule>::Error,
             _,
@@ -628,7 +619,7 @@ where
         let pczt = create_pczt_from_proposal::<
             _,
             _,
-            <MemoryWalletDb<Network> as InputSource>::Error,
+            <W as InputSource>::Error,
             _,
             <StandardFeeRule as FeeRule>::Error,
             _,
@@ -721,7 +712,7 @@ where
         let pczt = create_pczt_from_proposal::<
             _,
             _,
-            <MemoryWalletDb<Network> as InputSource>::Error,
+            <W as InputSource>::Error,
             _,
             <StandardFeeRule as FeeRule>::Error,
             _,

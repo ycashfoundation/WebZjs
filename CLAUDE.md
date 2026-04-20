@@ -65,7 +65,7 @@ The browser requires a gRPC-web proxy in front of a lightwalletd instance. Run o
 ## Architecture notes
 
 ### Wallet and syncing
-`crates/webzjs-wallet/src/wallet.rs` defines the generic `Wallet<Db, Client>`. The wasm-exposed type is `WebWallet` in `src/bindgen/wallet.rs`, which pins it to `MemoryWalletDb<Network>` (in-memory only) and `tonic_web_wasm_client::Client` (the browser gRPC-web transport). Sync runs via `zcash_client_backend::sync::run` dispatched to a `wasm_thread` worker; other wallet methods take a write lock but are safe to call during sync.
+`crates/webzjs-wallet/src/wallet.rs` defines the generic `Wallet<Db, Client>`. The wasm-exposed type is `WebWallet` in `src/bindgen/wallet.rs`, which holds a `DbWorkerHandle` that talks to a dedicated `wasm_thread` Worker; that worker owns the full `Wallet<WalletDb<Connection, ...>, tonic_web_wasm_client::Client>`, persisting to an OPFS-backed SQLite database via the `sqlite-wasm-rs` sahpool VFS. Every wallet op — including sync and Groth16/halo2 proving — runs inside the DB worker, so the main thread never blocks on SQLite or `Atomics.wait`. See `crates/webzjs-wallet/src/db/worker.rs` for the actor implementation.
 
 ### PCZT flow
 Spending is a four-step PCZT pipeline: `pczt_create` (propose + build) → `pczt_sign` (requires USK; run inside the Snap) → `pczt_prove` (SNARK proving, parallelized across workers) → `pczt_send`. The `webzjs-keys` crate exists so the Snap can sign without pulling in the full wallet crate.

@@ -7,6 +7,11 @@ import React, {
   useRef,
 } from 'react';
 import { get, del } from 'idb-keyval';
+// Legacy idb-keyval `wallet` key was used by the retired memory-backed
+// WebWallet to stash a postcard-serialized DB between page loads. SQLite
+// persists to OPFS directly, so on a page load where that legacy blob is
+// still hanging around from a pre-step-7 session, we delete it.
+const LEGACY_WALLET_KEY = 'wallet';
 
 import initWebzJSWallet, {
   initThreadPool,
@@ -14,7 +19,10 @@ import initWebzJSWallet, {
   WebWallet,
 } from '@chainsafe/webzjs-wallet';
 import initWebzJSKeys from '@chainsafe/webzjs-keys';
-import { MAINNET_LIGHTWALLETD_PROXY } from '../config/constants';
+import {
+  MAINNET_LIGHTWALLETD_PROXY,
+  SQLITE_DB_FILENAME,
+} from '../config/constants';
 import { ensureSaplingParams } from '../lib/saplingParams';
 import { Snap } from '../types';
 import toast, { Toaster } from 'react-hot-toast';
@@ -29,13 +37,6 @@ export interface WebZjsState {
   syncInProgress: boolean;
   loading: boolean;
   initialized: boolean;
-  /**
-   * Set when the persisted wallet DB failed to deserialize (e.g. after a wasm
-   * upgrade that changed the internal postcard layout). Signals Dashboard to
-   * skip normal `setupAccount` bootstrap and drive a `fullResync` instead,
-   * which rebuilds the wallet from the stored seed/UFVK + birthday.
-   */
-  needsRescan: boolean;
 }
 
 type Action =
@@ -46,8 +47,7 @@ type Action =
   | { type: 'set-active-account'; payload: number }
   | { type: 'set-sync-in-progress'; payload: boolean }
   | { type: 'set-loading'; payload: boolean }
-  | { type: 'set-initialized'; payload: boolean }
-  | { type: 'set-needs-rescan'; payload: boolean };
+  | { type: 'set-initialized'; payload: boolean };
 
 const initialState: WebZjsState = {
   webWallet: null,
@@ -59,7 +59,6 @@ const initialState: WebZjsState = {
   syncInProgress: false,
   loading: false,
   initialized: false,
-  needsRescan: false,
 };
 
 function reducer(state: WebZjsState, action: Action): WebZjsState {
@@ -80,8 +79,6 @@ function reducer(state: WebZjsState, action: Action): WebZjsState {
       return { ...state, loading: action.payload };
     case 'set-initialized':
       return { ...state, initialized: action.payload };
-    case 'set-needs-rescan':
-      return { ...state, needsRescan: action.payload };
     default:
       return state;
   }
@@ -143,33 +140,25 @@ export const WebZjsProvider = ({ children }: { children: React.ReactNode }) => {
         });
       });
 
-      const bytes = await get('wallet');
-      let wallet: WebWallet;
+      // SQLite-backed wallet: DB lives in an OPFS file that persists
+      // across page loads without serialize/deserialize round-trips.
+      // Schema migrations are handled inside `WebWallet.create` by
+      // `zcash_client_sqlite::init_wallet_db`, so there's no
+      // postcard-decode fallback to worry about.
+      const wallet = await WebWallet.create(
+        'main',
+        SQLITE_DB_FILENAME,
+        MAINNET_LIGHTWALLETD_PROXY,
+        1,
+        1,
+      );
 
-      if (bytes) {
-        console.info('Saved wallet detected. Restoring wallet from storage');
-        try {
-          wallet = new WebWallet('main', MAINNET_LIGHTWALLETD_PROXY, 1, 1, bytes);
-        } catch (deserializeError) {
-          console.warn(
-            'Failed to restore wallet from storage (wasm format change). Dropping stale bytes and flagging for rescan from birthday.',
-            deserializeError,
-          );
-          // Drop the undecodable bytes so a refresh mid-recovery doesn't
-          // re-enter this branch. The seed vault + stored birthday (held in
-          // SessionContext / IDB) are sufficient to reconstruct the wallet
-          // via fullResync — no user-visible data loss beyond sync time.
-          await del('wallet');
-          toast(
-            'Wallet storage format changed — resyncing from your birthday block. Your funds are safe.',
-            { duration: 6000 },
-          );
-          dispatch({ type: 'set-needs-rescan', payload: true });
-          wallet = new WebWallet('main', MAINNET_LIGHTWALLETD_PROXY, 1, 1, null);
-        }
-      } else {
-        console.info('No saved wallet detected. Creating new wallet');
-        wallet = new WebWallet('main', MAINNET_LIGHTWALLETD_PROXY, 1, 1, null);
+      // One-time cleanup: if a legacy idb-keyval `wallet` blob is still
+      // sitting around from a pre-SQLite page-load, drop it so it
+      // doesn't accumulate stale bytes.
+      const legacy = await get(LEGACY_WALLET_KEY);
+      if (legacy !== undefined) {
+        await del(LEGACY_WALLET_KEY);
       }
 
       dispatch({ type: 'set-web-wallet', payload: wallet });
