@@ -1341,17 +1341,39 @@ fn query_transaction_history(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Fetch outputs (pool + memo bytes) for the paginated txids. A tx can
-    // have outputs in multiple pools, so we aggregate in Rust rather than
-    // using SQL GROUP_CONCAT — the logic matches the memory-backed path's
-    // `acc.pools` HashSet and `acc.memos` Vec.
-    let mut outputs: std::collections::HashMap<
-        [u8; 32],
-        (std::collections::HashSet<u8>, Vec<String>),
-    > = std::collections::HashMap::new();
+    // Fetch outputs (pool + memo bytes + external recipient) for the
+    // paginated txids. A tx can have outputs in multiple pools, so we
+    // aggregate in Rust rather than using SQL GROUP_CONCAT — the logic
+    // matches the memory-backed path's `acc.pools` HashSet and `acc.memos`
+    // Vec. We also record the *first* external recipient address seen
+    // (rows where this wallet is the sender and the output isn't change
+    // or a self-transfer), which the UI surfaces on Sent rows. A split
+    // payment with multiple external recipients only shows the first —
+    // simpler than a "+N more" affordance and matches what the user saw
+    // in the review step when they sent.
+    #[derive(Default)]
+    struct OutputAgg {
+        pools: std::collections::HashSet<u8>,
+        memos: Vec<String>,
+        recipient_address: Option<String>,
+    }
+    let mut outputs: std::collections::HashMap<[u8; 32], OutputAgg> =
+        std::collections::HashMap::new();
     if !rows.is_empty() {
+        // `is_external_send` is computed in SQL so we don't have to pull
+        // the Uuid crate in just to compare account ids: within rows where
+        // `from_account_uuid = uuid OR to_account_uuid = uuid`, the only
+        // non-NULL uuid that can appear is our own — so `from_account_uuid
+        // IS NOT NULL AND to_account_uuid IS NULL` uniquely identifies an
+        // outbound-to-external output.
         let mut stmt_outputs = conn.prepare_cached(
-            "SELECT txid, output_pool, memo
+            "SELECT txid,
+                    output_pool,
+                    memo,
+                    to_address,
+                    (from_account_uuid IS NOT NULL
+                        AND to_account_uuid IS NULL
+                        AND is_change = 0) AS is_external_send
              FROM v_tx_outputs
              WHERE (from_account_uuid = ?1 OR to_account_uuid = ?1)",
         )?;
@@ -1360,14 +1382,23 @@ fn query_transaction_history(
             let txid: [u8; 32] = r.get("txid")?;
             let pool_code: u8 = r.get("output_pool")?;
             let memo_bytes: Option<Vec<u8>> = r.get("memo")?;
+            let to_address: Option<String> = r.get("to_address")?;
+            let is_external_send: bool = r.get("is_external_send")?;
             let entry = outputs.entry(txid).or_default();
-            entry.0.insert(pool_code);
+            entry.pools.insert(pool_code);
             if let Some(bytes) = memo_bytes {
                 if let Some(text) = decode_memo_text(&bytes) {
-                    if !text.is_empty() && !entry.1.contains(&text) {
-                        entry.1.push(text);
+                    if !text.is_empty() && !entry.memos.contains(&text) {
+                        entry.memos.push(text);
                     }
                 }
+            }
+            // Keep the *first* external recipient we see per tx. A split
+            // payment with multiple external recipients loses the rest —
+            // an acceptable compromise vs. surfacing a "+N more" affordance
+            // in the history row.
+            if is_external_send && entry.recipient_address.is_none() {
+                entry.recipient_address = to_address;
             }
         }
     }
@@ -1417,12 +1448,24 @@ fn query_transaction_history(
                 TransactionStatusType::Pending
             };
 
-            let (pools, memos) = outputs.remove(&row.txid).unwrap_or_default();
+            let OutputAgg {
+                pools,
+                memos,
+                recipient_address,
+            } = outputs.remove(&row.txid).unwrap_or_default();
             let pool = aggregate_pool(&pools);
             let memo = if memos.is_empty() {
                 None
             } else {
                 Some(memos.join("\n"))
+            };
+
+            // Only surface the recipient for outbound txs. A shield or
+            // self-transfer has no meaningful "external" destination, and a
+            // received tx's `to_address` is our own — both should hide it.
+            let recipient_address = match tx_type {
+                TransactionType::Sent => recipient_address,
+                _ => None,
             };
 
             TransactionHistoryEntry {
@@ -1436,6 +1479,7 @@ fn query_transaction_history(
                 memo,
                 timestamp: row.block_time.map(|t| t as u64),
                 pool,
+                recipient_address,
             }
         })
         .collect();

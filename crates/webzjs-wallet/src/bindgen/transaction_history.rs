@@ -62,6 +62,12 @@ pub struct TransactionHistoryEntry {
     pub(crate) timestamp: Option<u64>,
     /// Pool type: "sapling", "orchard", "transparent", or "mixed"
     pub(crate) pool: String,
+    /// For outbound transactions, the external recipient address as
+    /// stored in `sent_notes.to_address`. `None` for received txs (we
+    /// don't know the sender for shielded inputs, and we don't resolve
+    /// transparent inputs yet), for self-transfers/shields, or when the
+    /// tx has no non-change external output.
+    pub(crate) recipient_address: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -114,6 +120,11 @@ impl TransactionHistoryEntry {
     #[wasm_bindgen(getter)]
     pub fn pool(&self) -> String {
         self.pool.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn recipient_address(&self) -> Option<String> {
+        self.recipient_address.clone()
     }
 }
 

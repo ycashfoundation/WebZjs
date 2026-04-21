@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import cn from 'classnames';
 import {
   TransferBalanceFormData,
@@ -125,6 +125,17 @@ export function TransferInput({
   });
 
   const classification = classifyAddress(recipient);
+  const memoAllowed = classification.kind === 'shielded';
+
+  // Wipe the memo when the recipient stops being a shielded address so a
+  // previously-typed memo doesn't quietly ride along if the user switches
+  // recipients. The field itself is also hidden below, so leaving stale
+  // state around would be invisible to the user.
+  useEffect(() => {
+    if (!memoAllowed && memo) {
+      handleChange('memo')('');
+    }
+  }, [memoAllowed, memo, handleChange]);
 
   const validateFields = () => {
     const newErrors = {
@@ -239,12 +250,13 @@ export function TransferInput({
           </button>
         }
       />
-      <MemoField
-        value={memo}
-        error={errors.memo}
-        disabled={classification.kind === 'transparent'}
-        onChange={(event) => handleChange('memo')(event)}
-      />
+      {memoAllowed && (
+        <MemoField
+          value={memo}
+          error={errors.memo}
+          onChange={(event) => handleChange('memo')(event)}
+        />
+      )}
       <div className="flex items-center justify-between gap-4 pt-2 border-t border-border">
         <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
           ZIP-317 fee is estimated by the wallet
@@ -258,19 +270,17 @@ export function TransferInput({
 interface MemoFieldProps {
   value: string;
   error?: string;
-  disabled: boolean;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
 }
 
 /**
- * Optional ZIP-302 text memo up to 512 bytes. Visually styled to match the
- * `Input` component (card bg, mono font, same border treatment) but uses a
- * textarea so memos can span multiple lines. The remaining-bytes readout
- * lives in the label row on the right so the user can see how much space is
- * left without the field feeling heavyweight for the common "I don't want a
- * memo" case.
+ * Optional ZIP-302 text memo up to 512 bytes. Only rendered for shielded
+ * recipients — memos require a shielded Sapling output, so showing the field
+ * for a transparent recipient would only promise functionality the protocol
+ * can't deliver. Visually styled to match the `Input` component so the form
+ * keeps a consistent rhythm when the field appears/disappears.
  */
-function MemoField({ value, error, disabled, onChange }: MemoFieldProps) {
+function MemoField({ value, error, onChange }: MemoFieldProps) {
   const bytes = memoByteLength(value);
   const remaining = MEMO_MAX_BYTES - bytes;
   return (
@@ -282,7 +292,7 @@ function MemoField({ value, error, disabled, onChange }: MemoFieldProps) {
         >
           Memo · optional
         </label>
-        {!disabled && value.length > 0 && (
+        {value.length > 0 && (
           <span
             className={cn(
               'font-mono text-[10px] uppercase tracking-[0.15em]',
@@ -298,21 +308,15 @@ function MemoField({ value, error, disabled, onChange }: MemoFieldProps) {
           'bg-card border rounded-md px-4 py-3 transition-colors',
           'border-border focus-within:border-accent',
           error && 'border-danger/60',
-          disabled && 'opacity-60',
         )}
       >
         <textarea
           id="memo"
           value={value}
           onChange={onChange}
-          disabled={disabled}
           rows={2}
-          placeholder={
-            disabled
-              ? 'Memos require a shielded (ys1…) recipient'
-              : 'Optional message — visible only to the recipient'
-          }
-          className="w-full bg-transparent text-text placeholder:text-text-dim text-sm leading-relaxed focus:outline-none resize-y disabled:cursor-not-allowed"
+          placeholder="Optional message — visible only to the recipient"
+          className="w-full bg-transparent text-text placeholder:text-text-dim text-sm leading-relaxed focus:outline-none resize-y"
         />
       </div>
       <ErrorMessage text={error} />

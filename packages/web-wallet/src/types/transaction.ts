@@ -12,6 +12,12 @@ export interface TransactionHistoryEntry {
   memo: string | null;
   timestamp: number | null;
   pool: string;
+  /**
+   * For Sent transactions, the external recipient address that was paid.
+   * Null for received, shielded (self-transfer), or any tx where no
+   * non-change external output was observed.
+   */
+  recipient_address: string | null;
 }
 
 export interface TransactionHistoryResponse {

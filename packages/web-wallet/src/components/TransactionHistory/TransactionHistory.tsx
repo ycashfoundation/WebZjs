@@ -77,6 +77,17 @@ function TransactionRow({ transaction }: TransactionRowProps) {
           <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-text-dim">
             {formatTimestamp(transaction.timestamp)}
           </div>
+          {transaction.tx_type === 'Sent' && transaction.recipient_address && (
+            <div
+              className="font-mono text-[11px] text-text-muted break-all"
+              title={transaction.recipient_address}
+            >
+              <span className="text-text-dim uppercase tracking-[0.15em] mr-2">
+                to
+              </span>
+              {truncateMiddle(transaction.recipient_address, 14, 10)}
+            </div>
+          )}
           {transaction.memo && (
             <div className="text-sm text-text-muted bg-surface border border-border rounded-md px-3 py-2 break-words mt-1">
               {transaction.memo}
