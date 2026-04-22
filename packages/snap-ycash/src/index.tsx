@@ -43,6 +43,10 @@ export const onRpcRequest: OnRpcRequestHandler = async ({
           signDetails: object({
             recipient: string(),
             amount: string(),
+            // ZIP-302 text memo — optional, only present for shielded
+            // recipients. Must be in the struct or superstruct's strict
+            // object() rejects it as `Expected a value of type 'never'`.
+            memo: optional(string()),
           }),
         }),
       );
