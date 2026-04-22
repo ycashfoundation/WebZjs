@@ -25,6 +25,7 @@ const DASHBOARD_NAV_ITEMS: NavItem[] = [
   { to: '/dashboard/transactions', label: 'Transactions' },
   { to: '/dashboard/transfer-balance', label: 'Send' },
   { to: '/dashboard/receive', label: 'Receive' },
+  { to: '/dashboard/addresses', label: 'Addresses' },
 ];
 
 const Header = (): React.JSX.Element => {

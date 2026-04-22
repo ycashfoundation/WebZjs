@@ -16,6 +16,7 @@ import {
   loadEncryptedSeed,
   saveEncryptedSeed,
 } from '../utils/seedVault';
+import { clearAddressBook } from '../utils/addressBook';
 
 export type SessionStatus = 'unknown' | 'no-vault' | 'locked' | 'unlocked';
 export type BackendChoice = 'browser' | 'snap';
@@ -230,7 +231,12 @@ export function SessionProvider({
       del(BACKEND_KEY),
       del('wallet'),
       del('birthdayBlock'),
+      clearAddressBook(),
     ]);
+    // AddressBookProvider lives above this context in the tree and caches
+    // its entries in memory; fire an event so it drops its state too
+    // (otherwise labels survive a factory reset until the next reload).
+    window.dispatchEvent(new CustomEvent('yw:addressbook-cleared'));
     setBackend(null);
     setMnemonic(null);
     setStatus('no-vault');

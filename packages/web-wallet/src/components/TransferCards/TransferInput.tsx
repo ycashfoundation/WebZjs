@@ -9,85 +9,14 @@ import Button from '../Button/Button';
 import ErrorMessage from '../ErrorMessage/ErrorMessage';
 import useBalance from '../../hooks/useBalance';
 import { yecToZats, zatsToYec } from '../../utils/balance';
+import { classifyAddress } from '../../utils/address';
+import { AddressPicker } from '../AddressPicker/AddressPicker';
+import { useAddressBook } from '../../context/AddressBookContext';
 
 interface TransferInputProps {
   formData: TransferBalanceFormData;
   handleChange: TransferBalanceFormHandleChange;
   nextStep: () => void;
-}
-
-type AddressClassification =
-  | { kind: 'shielded' }
-  | { kind: 'transparent' }
-  | { kind: 'invalid'; reason: string };
-
-/**
- * Loose, client-side classification of the recipient address so we can
- * surface a specific error *before* the send pipeline runs (tens of
- * seconds of proving, snap approval, etc.). Not authoritative — the Rust
- * layer does the bech32/base58 parse and will reject anything we let
- * through — but catches the common "pasted the wrong address" cases
- * early and lets us gate the memo field on "is this even a shielded
- * address."
- *
- * Ycash mainnet uses the following prefixes (per `chainparams.cpp` and
- * memory/reference_ycash_consensus.md):
- *   - Sapling (bech32 HRP "ys")        → `ys1…`
- *   - Transparent P2PKH (base58 0x1C,0x28) → `s1…`
- *   - Transparent P2SH  (base58 0x1C,0x2C) → `s3…`
- *
- * Everything else is rejected with a message naming *why*. Zcash
- * addresses (zs1, t1, t3, u1, ua1) are the overwhelmingly most common
- * typo because the chains share a UX history; testnet (`ytestsapling`,
- * `sm…`, `tm…`, `zt…`) gets its own branch because the error for a
- * mainnet-only wallet is actionable.
- */
-function classifyAddress(addr: string): AddressClassification {
-  const trimmed = addr.trim();
-  if (!trimmed) return { kind: 'invalid', reason: 'Please enter a valid address' };
-  const lower = trimmed.toLowerCase();
-
-  if (/^zs1/.test(lower)) {
-    return {
-      kind: 'invalid',
-      reason:
-        'That is a Zcash Sapling address (zs1…). This wallet only sends Ycash — ask the recipient for a ys1… address.',
-    };
-  }
-  if (/^(u1|ua1)[a-z0-9]/.test(lower)) {
-    return {
-      kind: 'invalid',
-      reason:
-        'Unified addresses require NU5, which Ycash never activated. Ask the recipient for their ys1… Sapling address.',
-    };
-  }
-  if (/^t[13][a-z0-9]/i.test(trimmed)) {
-    return {
-      kind: 'invalid',
-      reason:
-        'Zcash transparent addresses (t1…, t3…) are not compatible with Ycash.',
-    };
-  }
-  if (/^(ytestsapling|zt|tm|sm)/.test(lower)) {
-    return {
-      kind: 'invalid',
-      reason: 'That looks like a testnet address — this wallet is mainnet-only.',
-    };
-  }
-
-  if (/^ys1[a-z0-9]+$/.test(lower)) {
-    return { kind: 'shielded' };
-  }
-
-  // Base58 alphabet (preserves case — `s3`/`s1` are real version bytes).
-  if (/^s[13][A-HJ-NP-Za-km-z1-9]+$/.test(trimmed)) {
-    return { kind: 'transparent' };
-  }
-
-  return {
-    kind: 'invalid',
-    reason: "Doesn't look like a Ycash address (expected ys1… or s1…/s3…).",
-  };
 }
 
 /**
@@ -116,6 +45,8 @@ export function TransferInput({
   handleChange,
 }: TransferInputProps): React.JSX.Element {
   const { spendableBalance, shieldedBalance } = useBalance();
+  const { lookup } = useAddressBook();
+  const recipientMatch = recipient ? lookup(recipient) : undefined;
 
   const [errors, setErrors] = useState({
     recipient: '',
@@ -215,15 +146,33 @@ export function TransferInput({
           {zatsToYec(shieldedBalance)} YEC
         </span>
       </div>
-      <Input
-        label="Recipient address"
-        id="recipient"
-        placeholder="ys1… or s1…"
-        error={errors.recipient}
-        value={recipient}
-        mono
-        onChange={(event) => handleChange('recipient')(event)}
-      />
+      <div className="flex flex-col gap-2">
+        <Input
+          label="Recipient address"
+          id="recipient"
+          placeholder="ys1… or s1…"
+          error={errors.recipient}
+          value={recipient}
+          mono
+          onChange={(event) => handleChange('recipient')(event)}
+          labelActions={
+            <AddressPicker
+              onSelect={(entry) => handleChange('recipient')(entry.address)}
+            />
+          }
+        />
+        {recipientMatch && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-dim">
+              →
+            </span>
+            <span className="text-ycash">{recipientMatch.label}</span>
+            {recipientMatch.notes && (
+              <span className="text-text-dim">· {recipientMatch.notes}</span>
+            )}
+          </div>
+        )}
+      </div>
       <Input
         label="Amount"
         id="amount"

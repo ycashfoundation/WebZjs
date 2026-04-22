@@ -2,7 +2,9 @@ import { useCallback } from 'react';
 import { useTransactionHistory } from '../../hooks/useTransactionHistory';
 import { useWebZjsActions } from '../../hooks/useWebzjsActions';
 import { useWebZjsContext } from '../../context/WebzjsContext';
+import { useAddressBook } from '../../context/AddressBookContext';
 import { zatsToYec } from '../../utils';
+import { truncateLabel } from '../../utils/addressBook';
 import type {
   TransactionHistoryEntry,
   TransactionType,
@@ -11,6 +13,8 @@ import type {
 
 interface TransactionRowProps {
   transaction: TransactionHistoryEntry;
+  /** Resolved address-book label for `recipient_address`, if any. */
+  recipientLabel?: string;
 }
 
 function formatTimestamp(timestamp: number | null): string {
@@ -56,7 +60,7 @@ function truncateMiddle(s: string, left = 10, right = 8): string {
   return `${s.slice(0, left)}…${s.slice(-right)}`;
 }
 
-function TransactionRow({ transaction }: TransactionRowProps) {
+function TransactionRow({ transaction, recipientLabel }: TransactionRowProps) {
   const isPositive = transaction.value > 0;
   const valueColor = isPositive ? 'text-accent' : 'text-danger';
   const valuePrefix = isPositive ? '+' : '';
@@ -79,13 +83,21 @@ function TransactionRow({ transaction }: TransactionRowProps) {
           </div>
           {transaction.tx_type === 'Sent' && transaction.recipient_address && (
             <div
-              className="font-mono text-[11px] text-text-muted break-all"
+              className="text-[11px] text-text-muted break-all"
               title={transaction.recipient_address}
             >
-              <span className="text-text-dim uppercase tracking-[0.15em] mr-2">
+              <span className="font-mono text-text-dim uppercase tracking-[0.15em] mr-2">
                 to
               </span>
-              {truncateMiddle(transaction.recipient_address, 14, 10)}
+              {recipientLabel ? (
+                <span className="text-ycash">
+                  {truncateLabel(recipientLabel)}
+                </span>
+              ) : (
+                <span className="font-mono">
+                  {truncateMiddle(transaction.recipient_address, 14, 10)}
+                </span>
+              )}
             </div>
           )}
           {transaction.memo && (
@@ -127,6 +139,7 @@ function TransactionHistory() {
     useTransactionHistory({ pageSize: 20 });
   const { triggerRescan } = useWebZjsActions();
   const { state } = useWebZjsContext();
+  const { lookup } = useAddressBook();
 
   // "Refresh" should behave like the user expects: go check the chain for
   // anything new. `refresh()` alone just re-reads the local DB, which is
@@ -192,7 +205,15 @@ function TransactionHistory() {
       ) : (
         <div className="flex flex-col gap-3">
           {transactions.map((tx) => (
-            <TransactionRow key={tx.txid} transaction={tx} />
+            <TransactionRow
+              key={tx.txid}
+              transaction={tx}
+              recipientLabel={
+                tx.recipient_address
+                  ? lookup(tx.recipient_address)?.label
+                  : undefined
+              }
+            />
           ))}
         </div>
       )}

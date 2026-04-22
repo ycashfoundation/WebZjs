@@ -11,6 +11,7 @@ import AccountSummary from '../pages/AccountSummary';
 import TransferBalance from '../pages/TransferBalance/TransferBalance';
 import Receive from '../pages/Receive/Receive';
 import TransactionHistory from '../pages/TransactionHistory/TransactionHistory';
+import Addresses from '../pages/Addresses/Addresses';
 
 const router = createBrowserRouter([
   {
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
           { path: 'transfer-balance', element: <TransferBalance /> },
           { path: 'receive', element: <Receive /> },
           { path: 'transactions', element: <TransactionHistory /> },
+          { path: 'addresses', element: <Addresses /> },
         ],
       },
     ],
