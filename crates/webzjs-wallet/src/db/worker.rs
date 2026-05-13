@@ -100,6 +100,18 @@ pub enum Request {
         account_hd_index: u32,
         birthday_height: Option<u32>,
     },
+    /// Attach a standalone transparent pubkey to an existing account.
+    /// Bypasses ZIP-32 derivation — for accounts whose only transparent
+    /// key material is a single leaf (e.g. Ycash Ledger, where the
+    /// device exposes `m/44'/347'/0'/0/0` as a 33-byte compressed
+    /// pubkey with no chain code, so a real `AccountPubKey` can't be
+    /// reconstructed). Goes through `WalletWrite::import_standalone_transparent_pubkey`
+    /// and lands in the `addresses` table with
+    /// `imported_transparent_receiver_pubkey` set.
+    ImportTransparentPubkey {
+        account_id: u32,
+        pubkey_bytes: Vec<u8>,
+    },
     GetWalletSummary,
     GetCurrentAddressSapling {
         account_id: u32,
@@ -403,6 +415,23 @@ impl DbWorkerHandle {
             .await?
         {
             Response::AccountId(id) => Ok(id),
+            _ => Err(WorkerError::UnexpectedResponse),
+        }
+    }
+
+    pub async fn import_transparent_pubkey(
+        &self,
+        account_id: u32,
+        pubkey_bytes: Vec<u8>,
+    ) -> Result<(), WorkerError> {
+        match self
+            .send(Request::ImportTransparentPubkey {
+                account_id,
+                pubkey_bytes,
+            })
+            .await?
+        {
+            Response::Unit => Ok(()),
             _ => Err(WorkerError::UnexpectedResponse),
         }
     }
@@ -937,6 +966,22 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             Ok(Response::AccountId(account_uuid_to_u32(id)))
         }
 
+        Request::ImportTransparentPubkey {
+            account_id,
+            pubkey_bytes,
+        } => {
+            use ::zcash_client_backend::data_api::WalletWrite;
+            let pubkey = ::secp256k1::PublicKey::from_slice(&pubkey_bytes)
+                .map_err(|e| format!("transparent pubkey parse: {e}"))?;
+            let account_uuid = account_uuid_from_u32(wallet, account_id)
+                .await
+                .ok_or_else(|| format!("Account not found: {account_id}"))?;
+            let mut db = wallet.db.write().await;
+            db.import_standalone_transparent_pubkey(account_uuid, pubkey)
+                .map_err(|e| format!("import_standalone_transparent_pubkey: {e}"))?;
+            Ok(Response::Unit)
+        }
+
         Request::GetWalletSummary => {
             let summary = wallet
                 .get_wallet_summary()
@@ -967,12 +1012,39 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
                 .await
                 .ok_or_else(|| format!("Account not found: {account_id}"))?;
             let db = wallet.db.read().await;
-            let address = db
+
+            // Primary path: ZIP-32-derived transparent receiver attached
+            // to the account's UFVK (snap-backed accounts, future
+            // browser-backend transparent support, etc.).
+            if let Some(unified) = db
                 .get_last_generated_address_matching(account_uuid, UnifiedAddressRequest::ALLOW_ALL)
                 .map_err(|e| format!("get_last_generated_address_matching: {e}"))?
-                .ok_or_else(|| format!("Account not found: {account_id}"))?;
-            let taddr = address
-                .transparent()
+            {
+                if let Some(taddr) = unified.transparent() {
+                    return Ok(Response::Address(taddr.encode(&wallet.network)));
+                }
+            }
+
+            // Fallback path: a standalone transparent pubkey imported
+            // via `WalletWrite::import_standalone_transparent_pubkey`
+            // (the Ledger flow — the device's `GET_PUBKEY` leaf at
+            // `m/44'/347'/0'/0/0` is registered as a standalone receiver
+            // because the firmware doesn't expose an `AccountPubKey`
+            // chain code, so ZIP-32 child derivation isn't possible).
+            // The `include_standalone = true` flag is what surfaces
+            // those addresses from the `addresses` table.
+            use ::zcash_client_backend::data_api::WalletRead;
+            let receivers = db
+                .get_transparent_receivers(account_uuid, false, true)
+                .map_err(|e| format!("get_transparent_receivers: {e}"))?;
+            // Pick the first entry — for Ledger accounts there's
+            // exactly one (the imported leaf); for any other shape
+            // that lacks a UFVK transparent component but somehow has
+            // a standalone receiver, returning any is better than
+            // none.
+            let taddr = receivers
+                .keys()
+                .next()
                 .ok_or_else(|| "Account has no transparent component".to_string())?;
             Ok(Response::Address(taddr.encode(&wallet.network)))
         }

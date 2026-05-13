@@ -139,6 +139,41 @@ impl WebWallet {
             .map_err(err_to_error)
     }
 
+    /// Attach a standalone transparent pubkey to an existing account.
+    /// For accounts whose only transparent key material is a single
+    /// 33-byte compressed pubkey with no chain code (e.g. the Ycash
+    /// Ledger app, which exposes `m/44'/347'/0'/0/0` only). The
+    /// imported pubkey lands in the `addresses` table as an
+    /// `imported_transparent_receiver_pubkey`, and the wallet's
+    /// transparent UTXO scanner will then recognise UTXOs at the
+    /// corresponding `s1…` as belonging to this account.
+    ///
+    /// Pre-requisite: the account must already exist (created via
+    /// [`Self::create_account_sapling_efvk`] or
+    /// [`Self::create_account_full_efvk`]). For Ledger-style accounts
+    /// without a UFVK transparent component, this is the only way to
+    /// register transparent receivers; standard ZIP-32 child
+    /// derivation isn't possible because the device doesn't expose a
+    /// chain code.
+    ///
+    /// `pubkey_bytes` must be the 33-byte SEC1 compressed pubkey
+    /// (matches the format the Ycash Ledger app returns from
+    /// `GET_PUBKEY`).
+    ///
+    /// Requires the `transparent-key-import` feature on
+    /// `zcash_client_sqlite` / `zcash_client_backend` (enabled in
+    /// the WebZjs workspace).
+    pub async fn import_transparent_pubkey(
+        &self,
+        account_id: u32,
+        pubkey_bytes: Box<[u8]>,
+    ) -> Result<(), Error> {
+        self.handle
+            .import_transparent_pubkey(account_id, pubkey_bytes.into_vec())
+            .await
+            .map_err(err_to_error)
+    }
+
     /// Import a Sapling + transparent account from a raw 169-byte Sapling
     /// EFVK plus a 65-byte transparent `AccountPubKey`. Enables shieldAll
     /// and transparent-receive on snap-backed accounts.

@@ -124,13 +124,29 @@ export class LedgerSigningBackend implements SigningBackend {
       this.viewing.fvkHex,
       this.viewing.pubkeyHex,
     );
-    return wallet.create_account_sapling_efvk(
+    const accountId = await wallet.create_account_sapling_efvk(
       accountName,
       efvk,
       fingerprint,
       0,
       birthdayHeight,
     );
+    // Attach the device's transparent leaf (m/44'/347'/0'/0/0) as a
+    // standalone imported pubkey. The wallet's transparent UTXO
+    // scanner will then recognise UTXOs at the corresponding s1...
+    // as belonging to this account, so the Receive page can show
+    // both a ys1 and an s1 address. Spending those UTXOs (shieldAll
+    // / transparent-to-shielded) is a separate plumbing step on the
+    // PCZT side and stays unsupported for now — see shieldAll
+    // below.
+    const pubkeyBytes = hexToBytes(this.viewing.pubkeyHex);
+    if (pubkeyBytes.length !== 33) {
+      throw new Error(
+        `Ledger transparent pubkey must be 33 bytes (SEC1 compressed), got ${pubkeyBytes.length}`,
+      );
+    }
+    await wallet.import_transparent_pubkey(accountId, pubkeyBytes);
+    return accountId;
   }
 
   async sendShielded(
@@ -187,7 +203,7 @@ export class LedgerSigningBackend implements SigningBackend {
     // possible by importing the WIF into a wallet that has full key
     // material — `ycash-ledger-recovery` is the supported path.
     throw new Error(
-      'Shielding is not supported for Ledger accounts. The device only exposes a single transparent leaf with no chain code, so the wallet cannot track transparent UTXOs at that address. To move transparent funds, export them via the ycash-ledger-recovery tool and import the WIF into Ywallet.',
+      'Shielding through the Ledger is not yet supported — the device-side transparent signing path for shield-from-transparent PCZTs has not been wired up. To move transparent funds from your Ledger s1 address into the Sapling pool, export the WIF via the ycash-ledger-recovery tool and import into Ywallet.',
     );
   }
 }
