@@ -119,6 +119,20 @@ pub enum Request {
         /// `Error::UnsupportedMemoRecipient`.
         memo: Option<String>,
     },
+    /// Ledger-signed counterpart to [`Request::PcztCreate`]: builds the
+    /// same one-payment v4 PCZT but pre-commits each Sapling spend's
+    /// randomization `alpha` and each output's ZIP-212 `rseed` to bytes
+    /// the host (and the Ycash Ledger app, via wide-reduction of the
+    /// same 64 alpha bytes and `cmu` recomputation from the same rseed)
+    /// can both commit to. The response carries the unsigned PCZT plus
+    /// bundle-order entropy that the Ledger driver needs to feed to
+    /// `SIGN_SAPLING` / `ADD_S_OUT` in serialization order.
+    PcztCreateForLedger {
+        account_id: u32,
+        to_address: String,
+        value: u64,
+        memo: Option<String>,
+    },
     PcztProve {
         pczt: Pczt,
         sapling_proof_gen_key: Option<ProofGenerationKey>,
@@ -217,6 +231,15 @@ pub enum Response {
     AccountIds(Vec<u32>),
     Unit,
     Pczt(Pczt),
+    /// PCZT plus bundle-order Sapling spend/output entropy returned by
+    /// [`Request::PcztCreateForLedger`]. The two `Vec`s are sized to
+    /// `pczt.sapling.spends.len()` and `pczt.sapling.outputs.len()`
+    /// respectively, in bundle (post-shuffle) order.
+    PcztForLedger {
+        pczt: Pczt,
+        spend_alphas: Vec<[u8; 64]>,
+        output_rseeds: Vec<[u8; 32]>,
+    },
     TxIds(Vec<[u8; 32]>),
     #[cfg(feature = "wasm")]
     TransactionHistory(TransactionHistoryResponse),
@@ -448,6 +471,31 @@ impl DbWorkerHandle {
             .await?
         {
             Response::Pczt(pczt) => Ok(pczt),
+            _ => Err(WorkerError::UnexpectedResponse),
+        }
+    }
+
+    pub async fn pczt_create_for_ledger(
+        &self,
+        account_id: u32,
+        to_address: String,
+        value: u64,
+        memo: Option<String>,
+    ) -> Result<(Pczt, Vec<[u8; 64]>, Vec<[u8; 32]>), WorkerError> {
+        match self
+            .send(Request::PcztCreateForLedger {
+                account_id,
+                to_address,
+                value,
+                memo,
+            })
+            .await?
+        {
+            Response::PcztForLedger {
+                pczt,
+                spend_alphas,
+                output_rseeds,
+            } => Ok((pczt, spend_alphas, output_rseeds)),
             _ => Err(WorkerError::UnexpectedResponse),
         }
     }
@@ -968,6 +1016,28 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             Ok(Response::Pczt(pczt.into()))
         }
 
+        Request::PcztCreateForLedger {
+            account_id,
+            to_address,
+            value,
+            memo,
+        } => {
+            let account_uuid = account_uuid_from_u32(wallet, account_id)
+                .await
+                .ok_or_else(|| format!("Account not found: {account_id}"))?;
+            let to_address =
+                ZcashAddress::try_from_encoded(&to_address).map_err(|e| format!("{e}"))?;
+            let created = wallet
+                .pczt_create_for_ledger(account_uuid, to_address, value, memo.as_deref())
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Response::PcztForLedger {
+                pczt: created.pczt.into(),
+                spend_alphas: created.spend_alphas,
+                output_rseeds: created.output_rseeds,
+            })
+        }
+
         Request::PcztProve {
             pczt,
             sapling_proof_gen_key,
@@ -1104,9 +1174,48 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
             // trick rather than DROPping each table individually keeps
             // this robust against future schema additions — we don't
             // have to enumerate table names that evolve upstream.
+            //
+            // The DB worker owns one long-lived rusqlite connection,
+            // so `TEMP` objects (TEMPORARY TABLEs etc.) created by
+            // earlier migration passes survive across reset. The
+            // wallet_summaries migration creates and reads a
+            // `block_deltas` TEMP table; on the second init_wallet_db
+            // call after a reset, that TEMP table is still there and
+            // the migration explodes with "table block_deltas already
+            // exists". Wipe temp objects too before re-migrating —
+            // `temp.sqlite_master` is the same `writable_schema`
+            // trick applied to the connection's TEMP database (db #2).
             let mut db = wallet.db.write().await;
             {
                 let conn = db.conn();
+                // Enumerate then DROP every TEMP object (TABLE / INDEX /
+                // VIEW / TRIGGER) the migrations may have stashed here.
+                // We can't reuse the writable_schema trick on
+                // `temp.sqlite_master` because not every SQLite build
+                // permits writes against the temp schema's master; the
+                // straight DROP route works on every sqlite-wasm-rs
+                // version we've shipped.
+                let temp_drops: Vec<(String, String)> = {
+                    let mut stmt = conn
+                        .prepare(
+                            "SELECT type, name FROM temp.sqlite_master
+                             WHERE type IN ('table', 'index', 'trigger', 'view')
+                               AND name NOT LIKE 'sqlite_%'",
+                        )
+                        .map_err(|e| format!("reset temp scan: {e}"))?;
+                    let rows = stmt
+                        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                        .map_err(|e| format!("reset temp scan: {e}"))?;
+                    rows.collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| format!("reset temp scan: {e}"))?
+                };
+                for (ty, name) in temp_drops {
+                    let kind = ty.to_uppercase();
+                    let stmt = format!("DROP {kind} IF EXISTS temp.\"{name}\"");
+                    conn.execute(&stmt, [])
+                        .map_err(|e| format!("reset drop temp.{name}: {e}"))?;
+                }
+
                 conn.pragma_update(None, "writable_schema", "1")
                     .map_err(|e| format!("reset pragma on: {e}"))?;
                 conn.execute(

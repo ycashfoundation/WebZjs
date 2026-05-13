@@ -5,6 +5,7 @@ import Home from '../pages/Home';
 import CreateWallet from '../pages/CreateWallet';
 import ImportWallet from '../pages/ImportWallet';
 import ConnectSnap from '../pages/ConnectSnap';
+import ConnectLedger from '../pages/ConnectLedger';
 import Unlock from '../pages/Unlock';
 import Dashboard from '../pages/Dashboard';
 import AccountSummary from '../pages/AccountSummary';
@@ -25,6 +26,7 @@ const router = createBrowserRouter([
       { path: 'create', element: <CreateWallet /> },
       { path: 'import', element: <ImportWallet /> },
       { path: 'connect-snap', element: <ConnectSnap /> },
+      { path: 'connect-ledger', element: <ConnectLedger /> },
       { path: 'unlock', element: <Unlock /> },
       {
         path: 'dashboard',

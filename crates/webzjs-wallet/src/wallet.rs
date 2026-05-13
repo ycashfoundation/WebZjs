@@ -29,9 +29,9 @@ use subtle::ConditionallySelectable;
 use tokio::sync::RwLock;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
-    create_pczt_from_proposal, create_proposed_transactions,
+    create_pczt_from_proposal, create_pczt_from_proposal_for_ledger, create_proposed_transactions,
     extract_and_store_transaction_from_pczt, input_selection::GreedyInputSelector,
-    propose_shielding, propose_transfer, ConfirmationsPolicy, SpendingKeys,
+    propose_shielding, propose_transfer, ConfirmationsPolicy, LedgerEntropy, SpendingKeys,
 };
 use zcash_client_backend::data_api::{
     Account, AccountBirthday, AccountPurpose, InputSource, WalletRead, WalletSummary, WalletWrite,
@@ -46,11 +46,14 @@ use zcash_client_backend::proto::service::{
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_backend::zip321::{Payment, TransactionRequest};
 use zcash_client_memory::MemBlockCache;
+use zcash_keys::address::Address;
 use zcash_keys::keys::{UnifiedFullViewingKey, UnifiedSpendingKey};
 use zcash_primitives::transaction::fees::FeeRule;
 use zcash_primitives::transaction::TxId;
 use zcash_protocol::memo::{Memo, MemoBytes};
-use zcash_protocol::ShieldedProtocol;
+use zcash_protocol::{PoolType, ShieldedProtocol};
+
+use rand::{rngs::OsRng, RngCore};
 
 use zcash_client_backend::sync::run;
 
@@ -64,6 +67,81 @@ const BATCH_SIZE: u32 = 10000; // Smaller batches = shorter CPU bursts with I/O 
 /// constant that signals what's the minimum transparent balance for proposing a
 /// shielding transaction
 const SHIELDING_THRESHOLD: Zatoshis = Zatoshis::const_from_u64(100000);
+
+/// Bundled output of [`Wallet::pczt_create_for_ledger`]: the unsigned
+/// PCZT plus per-Sapling-spend and per-Sapling-output entropy in
+/// **bundle order**, so a downstream Ledger driver can feed each
+/// spend's alpha to `SIGN_SAPLING` in the same order the device hashed
+/// it and present each output to `ADD_S_OUT` with the rseed the bundle
+/// embeds.
+#[derive(Debug, Clone)]
+pub struct PcztForLedger {
+    /// Unsigned PCZT (post-Creator, pre-IoFinalize — same shape as the
+    /// output of [`Wallet::pczt_create`]).
+    pub pczt: Pczt,
+    /// 64 bytes per Sapling spend, in bundle order.
+    pub spend_alphas: Vec<[u8; 64]>,
+    /// 32 bytes per Sapling output, in bundle order (covers both
+    /// payment outputs and change).
+    pub output_rseeds: Vec<[u8; 32]>,
+}
+
+/// Count the number of Sapling spends and Sapling outputs the proposal
+/// will produce, by mirroring the branch logic in
+/// `build_proposed_transaction` in librustzcash-ycash. Used to pre-allocate
+/// the exact amount of per-spend / per-output entropy
+/// [`create_pczt_from_proposal_for_ledger`] expects — supplying more
+/// than needed panics the bundle-order reshuffle, and supplying fewer
+/// returns `Error::LedgerEntropyExhausted`.
+fn count_sapling_entropy_for_proposal<FeeRuleT, NoteRef>(
+    proposal: &Proposal<FeeRuleT, NoteRef>,
+    network: &Network,
+) -> Result<(usize, usize), Error> {
+    if proposal.steps().len() != 1 {
+        return Err(Error::Generic(
+            "pczt_create_for_ledger does not support multi-step proposals".to_string(),
+        ));
+    }
+    let step = proposal.steps().first();
+    let n_spends = step.shielded_inputs().map_or(0, |s| s.notes().len());
+
+    let mut n_outputs = 0;
+    for (&payment_index, output_pool) in step.payment_pools() {
+        let payment = step
+            .transaction_request()
+            .payments()
+            .get(&payment_index)
+            .ok_or_else(|| {
+                Error::Generic(format!(
+                    "payment_pools references missing payment index {payment_index}"
+                ))
+            })?;
+        let address = Address::try_from_zcash_address(network, payment.recipient_address().clone())
+            .map_err(|e| {
+                Error::Generic(format!(
+                    "payment recipient not decodable for current network: {e:?}"
+                ))
+            })?;
+        match address {
+            Address::Unified(_) => {
+                if matches!(output_pool, PoolType::Shielded(ShieldedProtocol::Sapling)) {
+                    n_outputs += 1;
+                }
+            }
+            Address::Sapling(_) => n_outputs += 1,
+            Address::Transparent(_) | Address::Tex(_) => {}
+        }
+    }
+    for change in step.balance().proposed_change() {
+        if matches!(
+            change.output_pool(),
+            PoolType::Shielded(ShieldedProtocol::Sapling)
+        ) {
+            n_outputs += 1;
+        }
+    }
+    Ok((n_spends, n_outputs))
+}
 
 /// Turn a user-supplied memo string into the ZIP-302 `MemoBytes`
 /// representation expected by `Payment::new`. Empty-string maps to `None`
@@ -665,16 +743,18 @@ where
 
         Ok(pczt)
     }
-    ///
-    /// Create a PCZT
-    ///
-    pub async fn pczt_create(
+    /// Sync-if-behind + propose_transfer prologue shared between the
+    /// snap-signed (`pczt_create`) and Ledger-signed
+    /// (`pczt_create_for_ledger`) PCZT paths. Builds a one-payment
+    /// proposal with a Sapling-preferring change strategy (Ycash has no
+    /// active Orchard pool — see `pczt_create` for the long version).
+    async fn propose_pczt_transfer(
         &self,
         account_id: AccountId,
         to_address: ZcashAddress,
         value: u64,
         memo: Option<&str>,
-    ) -> Result<Pczt, Error> {
+    ) -> Result<Proposal<StandardFeeRule, NoteRef>, Error> {
         // Ensure wallet is synced before creating transaction to prevent expiry errors
         let mut client = self.client.clone();
         let chain_tip: u32 = client
@@ -690,13 +770,15 @@ where
             let wallet_height_u32: u32 = wallet_height.into();
             if chain_tip.saturating_sub(wallet_height_u32) > 10 {
                 tracing::warn!(
-                    "pczt_create: Wallet not fully synced: wallet={} < chain_tip={}. Syncing now...",
+                    "propose_pczt_transfer: Wallet not fully synced: wallet={} < chain_tip={}. Syncing now...",
                     wallet_height_u32,
                     chain_tip
                 );
                 drop(client);
                 self.sync().await?;
-                tracing::info!("pczt_create: Sync completed, proceeding with transaction creation");
+                tracing::info!(
+                    "propose_pczt_transfer: Sync completed, proceeding with transaction creation"
+                );
             }
         } else {
             return Err(Error::Generic(
@@ -704,10 +786,9 @@ where
             ));
         }
 
-        // Create the PCZT. Ycash has no active Orchard pool, so the change
-        // preference must be Sapling — otherwise `create_pczt_from_proposal`
-        // would try to build an Orchard change output that the Sapling-only
-        // UFVK can't serve.
+        // Ycash has no active Orchard pool, so the change preference must be
+        // Sapling — otherwise `create_pczt_from_proposal` would try to build
+        // an Orchard change output that the Sapling-only UFVK can't serve.
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
@@ -733,7 +814,7 @@ where
         .ok_or(Error::UnsupportedMemoRecipient)?;
         let request = TransactionRequest::new(vec![payment])?;
         let mut db = self.db.write().await;
-        let proposal = propose_transfer::<_, _, _,_, <W as WalletCommitmentTrees>::Error>(
+        let proposal = propose_transfer::<_, _, _, _, <W as WalletCommitmentTrees>::Error>(
             &mut *db,
             &self.network,
             account_id,
@@ -742,8 +823,30 @@ where
             request,
             self.min_confirmations,
         )
-            .map_err(|e| Error::Generic(format!("something bad happened when calling propose transfer. Possibly insufficient balance... {:?}", e)))?;
+        .map_err(|e| {
+            Error::Generic(format!(
+                "something bad happened when calling propose transfer. Possibly insufficient balance... {:?}",
+                e
+            ))
+        })?;
         tracing::info!("PCZT proposal created");
+        Ok(proposal)
+    }
+
+    ///
+    /// Create a PCZT
+    ///
+    pub async fn pczt_create(
+        &self,
+        account_id: AccountId,
+        to_address: ZcashAddress,
+        value: u64,
+        memo: Option<&str>,
+    ) -> Result<Pczt, Error> {
+        let proposal = self
+            .propose_pczt_transfer(account_id, to_address, value, memo)
+            .await?;
+        let mut db = self.db.write().await;
         let pczt = create_pczt_from_proposal::<
             _,
             _,
@@ -763,6 +866,76 @@ where
             Error::PcztCreate(format!("{:?}", e))
         })?;
         Ok(pczt)
+    }
+
+    /// Ledger-signed counterpart to [`Self::pczt_create`]: builds the
+    /// same v4 PCZT but pre-commits each Sapling spend's randomization
+    /// `alpha` and each Sapling output's ZIP-212 `rseed` to caller-supplied
+    /// bytes — so the Ycash Ledger app, which wide-reduces the same 64
+    /// bytes for `alpha` itself and computes `cmu` from the same `rseed`,
+    /// agrees with the bundle this host emits.
+    ///
+    /// Returned alongside the PCZT are the per-spend / per-output entropy
+    /// reshuffled into **bundle order**, ready to feed into
+    /// [`Self::pczt_sign_with_ledger`] in the same order the device hashes
+    /// `ADD_S_IN` / `ADD_S_OUT_NC`.
+    pub async fn pczt_create_for_ledger(
+        &self,
+        account_id: AccountId,
+        to_address: ZcashAddress,
+        value: u64,
+        memo: Option<&str>,
+    ) -> Result<PcztForLedger, Error> {
+        let proposal = self
+            .propose_pczt_transfer(account_id, to_address, value, memo)
+            .await?;
+
+        let (n_spends, n_outputs) = count_sapling_entropy_for_proposal(&proposal, &self.network)?;
+        let mut spend_alphas = Vec::with_capacity(n_spends);
+        for _ in 0..n_spends {
+            let mut buf = [0u8; 64];
+            OsRng.fill_bytes(&mut buf);
+            spend_alphas.push(buf);
+        }
+        let mut output_rseeds = Vec::with_capacity(n_outputs);
+        for _ in 0..n_outputs {
+            let mut buf = [0u8; 32];
+            OsRng.fill_bytes(&mut buf);
+            output_rseeds.push(buf);
+        }
+        let entropy = LedgerEntropy {
+            spend_alphas,
+            output_rseeds,
+        };
+
+        let mut db = self.db.write().await;
+        let (pczt, outputs) = create_pczt_from_proposal_for_ledger::<
+            _,
+            _,
+            <W as InputSource>::Error,
+            _,
+            <StandardFeeRule as FeeRule>::Error,
+            _,
+        >(
+            &mut *db,
+            &self.network,
+            account_id,
+            OvkPolicy::Sender,
+            &proposal,
+            &entropy,
+        )
+        .map_err(|e| {
+            tracing::error!(
+                "pczt_create_for_ledger: create_pczt_from_proposal_for_ledger failed: {:?}",
+                e
+            );
+            Error::PcztCreate(format!("{:?}", e))
+        })?;
+        Ok(PcztForLedger {
+            pczt,
+            spend_alphas: outputs.spend_alphas_bundle_order,
+            output_rseeds: outputs.output_rseeds_bundle_order,
+        })
     }
 
     ///

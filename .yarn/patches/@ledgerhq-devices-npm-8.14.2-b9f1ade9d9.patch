@@ -1,0 +1,18 @@
+diff --git a/hid-framing.js b/hid-framing.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..f3dd3c65e1c73a4113e92e7cbfa6e5b8d93f3cbd
+--- /dev/null
++++ b/hid-framing.js
+@@ -0,0 +1,12 @@
++// Parcel 2.13's resolver mishandles subpath patterns in this package's
++// exports map (the `"./*": { "default": "./lib-es/*.js" }` shape — Parcel
++// drops the `.js` substitution and tries to load `./hid-framing` literally
++// from the package root). `@ledgerhq/hw-transport-webhid` imports
++// `@ledgerhq/devices/hid-framing` internally, so the wallet build dies
++// at bundle time on `Cannot load file './hid-framing'`.
++//
++// Workaround: a real file at the literal subpath sidesteps the exports
++// map and gives Parcel something to resolve. Re-exports from lib-es so
++// no behavior change.
++export * from "./lib-es/hid-framing.js";
++export { default } from "./lib-es/hid-framing.js";

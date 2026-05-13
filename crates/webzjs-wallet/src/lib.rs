@@ -9,6 +9,7 @@ pub mod bindgen;
 pub mod db;
 mod error;
 pub mod init;
+pub mod ledger_sign;
 pub mod sapling_params;
 pub mod validation;
 

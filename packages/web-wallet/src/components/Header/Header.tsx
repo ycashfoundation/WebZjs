@@ -103,7 +103,11 @@ const Header = (): React.JSX.Element => {
   const isDark = theme === 'dark';
   const isDashboardRoute = location.pathname.startsWith('/dashboard');
   const showNav = isDashboardRoute && sessionStatus === 'unlocked';
-  const isSnap = backend === 'snap';
+  // 'Lock' is meaningful only when the host holds key material in memory
+  // (browser backend). For snap and ledger, the device retains its own
+  // unlock state, so the menu action behaves like "Disconnect" (wipe the
+  // local viewing material and return to home).
+  const isExternalBackend = backend === 'snap' || backend === 'ledger';
 
   // Close the mobile menu on route change so tapping a link doesn't leave
   // the dropdown open.
@@ -136,14 +140,14 @@ const Header = (): React.JSX.Element => {
   }, [menuOpen]);
 
   const handleLockOrDisconnect = useCallback(async () => {
-    if (isSnap) {
+    if (isExternalBackend) {
       await wipeVault();
       navigate('/', { replace: true });
     } else {
       lock();
       navigate('/unlock', { replace: true });
     }
-  }, [isSnap, wipeVault, navigate, lock]);
+  }, [isExternalBackend, wipeVault, navigate, lock]);
 
   const tabClass = ({ isActive }: { isActive: boolean }) =>
     cn(
@@ -251,7 +255,7 @@ const Header = (): React.JSX.Element => {
             onClick={handleLockOrDisconnect}
             className="hidden min-[900px]:inline-flex font-mono text-[11px] uppercase tracking-[0.14em] text-text-dim hover:text-ycash transition-colors px-2 py-2"
           >
-            {isSnap ? 'Disconnect' : 'Lock'}
+            {isExternalBackend ? 'Disconnect' : 'Lock'}
           </button>
         )}
 
@@ -331,7 +335,7 @@ const Header = (): React.JSX.Element => {
                     onClick={handleLockOrDisconnect}
                     className="px-4 py-2.5 text-left font-mono text-[11px] uppercase tracking-[0.14em] text-text-dim hover:text-ycash hover:bg-surface focus:outline-none focus:bg-surface focus:text-ycash transition-colors"
                   >
-                    {isSnap ? 'Disconnect' : 'Lock'}
+                    {isExternalBackend ? 'Disconnect' : 'Lock'}
                   </button>
                 </nav>
               </div>

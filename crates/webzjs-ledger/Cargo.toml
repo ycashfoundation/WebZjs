@@ -1,0 +1,23 @@
+[package]
+name = "webzjs-ledger"
+version = "0.1.0"
+authors = ["Howard Loo"]
+license = "MIT OR Apache-2.0"
+description = "Browser-side driver for the Ycash Ledger app: APDU framing and v4/ZIP-243 state-machine sequencing for hardware-wallet signing."
+edition = "2021"
+
+[lib]
+# `rlib` only — this crate is consumed from webzjs-wallet, not built into
+# its own wasm-bindgen npm package. JS-facing surface lives on WebWallet.
+crate-type = ["rlib"]
+
+[dependencies]
+# Async glue and JS-supplied APDU callback.
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = "0.4.43"
+
+thiserror.workspace = true
+
+[lints]
+workspace = true

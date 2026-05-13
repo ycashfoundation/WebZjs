@@ -17,11 +17,55 @@ import {
   saveEncryptedSeed,
 } from '../utils/seedVault';
 import { clearAddressBook } from '../utils/addressBook';
+import { SQLITE_DB_FILENAME } from '../config/constants';
+
+/**
+ * Delete the wallet's OPFS SQLite file directly via the
+ * `navigator.storage` File System Access API.
+ *
+ * We can't go through `WebWallet::reset` here because `SessionContext`
+ * doesn't have a wallet handle (the wallet only exists inside
+ * `WebzjsContext`, which is mounted below the protected-route gate and
+ * is not initialized in `no-vault` state). Best-effort: swallow any
+ * failure — if OPFS isn't available (Safari fallback, file gone, name
+ * locked by a worker), the worst case is a stale account row that
+ * `setupAccount` may pick up, but the IDB-side backend choice is
+ * already gone so the user re-onboards.
+ */
+async function wipeOpfsWalletDb(): Promise<void> {
+  try {
+    const root = await navigator.storage?.getDirectory();
+    if (!root) return;
+    await root.removeEntry(SQLITE_DB_FILENAME, { recursive: false });
+  } catch (err) {
+    // NotFoundError is benign (already gone); everything else we log so
+    // the next user reset isn't silently load-bearing on a sticky file.
+    if (!(err instanceof DOMException && err.name === 'NotFoundError')) {
+      console.warn('wipeOpfsWalletDb failed:', err);
+    }
+  }
+}
 
 export type SessionStatus = 'unknown' | 'no-vault' | 'locked' | 'unlocked';
-export type BackendChoice = 'browser' | 'snap';
+export type BackendChoice = 'browser' | 'snap' | 'ledger';
 
 const BACKEND_KEY = 'yw:backend';
+const LEDGER_VIEWING_KEY = 'yw:ledger-viewing';
+
+/**
+ * Persisted Ledger viewing-key material. Captured during onboarding from
+ * `GET_FVK` (128 bytes: `ak || nk || ovk || dk`) and `GET_PUBKEY` (33
+ * bytes: compressed transparent leaf at `m/44'/347'/0'/0/0`). Cached in
+ * IndexedDB so subsequent page loads can register the account without
+ * needing the device plugged in — the device is only required for
+ * signing.
+ */
+export interface LedgerViewingMaterial {
+  /** hex of the 128-byte device GET_FVK response. */
+  fvkHex: string;
+  /** hex of the 33-byte device GET_PUBKEY response. */
+  pubkeyHex: string;
+}
 
 /**
  * Idle timeout before the browser backend auto-wipes the in-memory seed and
@@ -79,6 +123,21 @@ interface SessionContextShape {
    * chain tip default. Used for recovering older wallet state after a wipe.
    */
   chooseSnapBackend: (birthdayHeight?: number) => Promise<void>;
+  /**
+   * Commit the backend as `'ledger'`. Persists the device's viewing-key
+   * material so subsequent page loads can recreate the account without
+   * the device plugged in. The device is only re-prompted when the user
+   * actually signs.
+   */
+  chooseLedgerBackend: (
+    viewing: LedgerViewingMaterial,
+    birthdayHeight?: number,
+  ) => Promise<void>;
+  /**
+   * Cached Ledger viewing material when `backend === 'ledger'`. `null`
+   * for every other backend or before the user finishes onboarding.
+   */
+  ledgerViewing: LedgerViewingMaterial | null;
   /** Drop any in-memory mnemonic. For snap backend, effectively a no-op. */
   lock: () => void;
   /**
@@ -101,6 +160,8 @@ export function SessionProvider({
   const [status, setStatus] = useState<SessionStatus>('unknown');
   const [backend, setBackend] = useState<BackendChoice | null>(null);
   const [mnemonic, setMnemonic] = useState<string | null>(null);
+  const [ledgerViewing, setLedgerViewing] =
+    useState<LedgerViewingMaterial | null>(null);
 
   // On first mount, probe IndexedDB for (a) a persisted backend choice and
   // (b) an encrypted vault, then decide the starting session state.
@@ -121,6 +182,22 @@ export function SessionProvider({
       if (storedBackend === 'snap') {
         setBackend('snap');
         setStatus('unlocked');
+        return;
+      }
+      if (storedBackend === 'ledger') {
+        const cached = (await get(LEDGER_VIEWING_KEY)) as
+          | LedgerViewingMaterial
+          | undefined;
+        if (cached) {
+          setLedgerViewing(cached);
+          setBackend('ledger');
+          setStatus('unlocked');
+          return;
+        }
+        // Backend says 'ledger' but the viewing material is gone — treat
+        // as a partial vault and let onboarding restart.
+        setBackend(null);
+        setStatus('no-vault');
         return;
       }
       // Treat any other case as the browser path — either the user picked
@@ -170,12 +247,32 @@ export function SessionProvider({
     setStatus('unlocked');
   }, []);
 
+  const chooseLedgerBackend = useCallback(
+    async (viewing: LedgerViewingMaterial, birthdayHeight?: number) => {
+      await Promise.all([
+        set(BACKEND_KEY, 'ledger'),
+        set(LEDGER_VIEWING_KEY, viewing),
+      ]);
+      if (birthdayHeight !== undefined) {
+        await set('birthdayBlock', String(birthdayHeight));
+      }
+      setLedgerViewing(viewing);
+      setBackend('ledger');
+      setMnemonic(null);
+      setStatus('unlocked');
+    },
+    [],
+  );
+
   const lock = useCallback(() => {
     setMnemonic(null);
-    // For snap backend there's nothing to re-authenticate (MetaMask handles
-    // that on its side), so Lock is effectively a soft-reset that sends
-    // them back to the passphrase prompt only for browser backend.
-    setStatus(backend === 'snap' ? 'unlocked' : 'locked');
+    // For snap / ledger backends there's nothing to re-authenticate (the
+    // external device handles that on its side), so Lock is effectively a
+    // soft-reset that only sends the user back to the passphrase prompt
+    // on the browser backend.
+    setStatus(
+      backend === 'snap' || backend === 'ledger' ? 'unlocked' : 'locked',
+    );
   }, [backend]);
 
   // Browser-backend auto-lock. Arm only when (a) we hold an in-memory
@@ -225,13 +322,24 @@ export function SessionProvider({
     // onboarding flow performs a fresh import rather than restoring the
     // old account. Without this, reconnecting a snap (or importing a
     // different seed via the browser backend) would silently restore the
-    // previous account from IndexedDB.
+    // previous account from the SQLite file in OPFS.
+    //
+    // The SQLite wallet lives in OPFS (`webzjs-wallet.sqlite3`), not in
+    // idb-keyval. Clearing the IDB keys alone leaves the wallet rows
+    // intact, so `setupAccount` would short-circuit on
+    // `get_account_ids().length > 0` and silently restore the previous
+    // wallet under whatever backend label the user just committed
+    // — a serious safety hole when the user switches backends.
     await Promise.all([
       clearEncryptedSeed(),
       del(BACKEND_KEY),
+      del(LEDGER_VIEWING_KEY),
+      del('yw:ledger-addr-verified'),
+      // Legacy pre-SQLite blob; no-op for current builds.
       del('wallet'),
       del('birthdayBlock'),
       clearAddressBook(),
+      wipeOpfsWalletDb(),
     ]);
     // AddressBookProvider lives above this context in the tree and caches
     // its entries in memory; fire an event so it drops its state too
@@ -239,6 +347,7 @@ export function SessionProvider({
     window.dispatchEvent(new CustomEvent('yw:addressbook-cleared'));
     setBackend(null);
     setMnemonic(null);
+    setLedgerViewing(null);
     setStatus('no-vault');
   }, []);
 
@@ -247,9 +356,11 @@ export function SessionProvider({
       status,
       backend,
       mnemonic,
+      ledgerViewing,
       createWallet,
       unlock,
       chooseSnapBackend,
+      chooseLedgerBackend,
       lock,
       wipeVault,
     }),
@@ -257,9 +368,11 @@ export function SessionProvider({
       status,
       backend,
       mnemonic,
+      ledgerViewing,
       createWallet,
       unlock,
       chooseSnapBackend,
+      chooseLedgerBackend,
       lock,
       wipeVault,
     ],

@@ -4,6 +4,7 @@ import { useWebZjsContext } from '../context/WebzjsContext';
 import { useSession } from '../context/SessionContext';
 import { useWebZjsActions } from '../hooks';
 import Loader from '../components/Loader/Loader';
+import LedgerVerifyAddress from '../components/LedgerVerifyAddress/LedgerVerifyAddress';
 
 /**
  * Dashboard is the authenticated shell. It assumes the ProtectedRoute gate
@@ -57,7 +58,9 @@ const Dashboard: React.FC = () => {
   return (
     <div className="w-full">
       {ready ? (
-        <Outlet />
+        <LedgerVerifyAddress>
+          <Outlet />
+        </LedgerVerifyAddress>
       ) : (
         <div className="flex flex-col items-center justify-center py-24 gap-4">
           <Loader />

@@ -32,6 +32,7 @@ use crate::db::worker::{
     spawn, AccountBalanceData, Backing, DbWorkerHandle, WalletSummaryData, WorkerError,
 };
 use crate::error::Error;
+use crate::ledger_sign::{build_ledger_tx_input, slice_32_chunks, slice_64_chunks};
 use crate::validation::validate_confirmations_policy;
 
 #[wasm_bindgen]
@@ -219,6 +220,36 @@ impl WebWallet {
             .map_err(err_to_error)
     }
 
+    /// Ledger-signed counterpart to [`Self::pczt_create`]. Builds the
+    /// same one-payment v4 PCZT, but pre-commits each Sapling spend's
+    /// `alpha` and each output's ZIP-212 `rseed` to caller-supplied
+    /// bytes so the on-device wide-reduction (alpha) and `cmu`
+    /// recomputation (rseed) on the Ycash Ledger app agree with what
+    /// the bundle embeds.
+    ///
+    /// Returns the unsigned PCZT plus per-spend / per-output entropy in
+    /// bundle order. JS consumers feed this to the Ledger driver
+    /// (`pczt_sign_with_ledger`); the alpha and rseed vectors line up
+    /// with `pczt.sapling.spends` / `pczt.sapling.outputs` respectively.
+    pub async fn pczt_create_for_ledger(
+        &self,
+        account_id: u32,
+        to_address: String,
+        value: u64,
+        memo: Option<String>,
+    ) -> Result<PcztForLedger, Error> {
+        let (pczt, spend_alphas, output_rseeds) = self
+            .handle
+            .pczt_create_for_ledger(account_id, to_address, value, memo)
+            .await
+            .map_err(err_to_error)?;
+        Ok(PcztForLedger {
+            pczt,
+            spend_alphas,
+            output_rseeds,
+        })
+    }
+
     /// Run the Groth16 + halo2 prover over `pczt`. Runs inside the DB
     /// worker (a Web Worker, where `Atomics.wait` is available to rayon);
     /// no separate prove worker is spawned. Expect tens of seconds of CPU
@@ -242,6 +273,176 @@ impl WebWallet {
             .pczt_prove(pczt, pgk, int_pgk)
             .await
             .map_err(err_to_error)
+    }
+
+    /// Drive a connected Ycash Ledger device through one full
+    /// v4/ZIP-243 signing pipeline and return a signed PCZT, ready to
+    /// be handed to [`Self::pczt_send`].
+    ///
+    /// Inputs:
+    /// * `pczt` — the unsigned PCZT returned from
+    ///   [`Self::pczt_create_for_ledger`].
+    /// * `spend_alphas` — flat concatenation of 64-byte per-spend alpha
+    ///   buffers in bundle order (the `spend_alphas` getter on
+    ///   [`PcztForLedger`]).
+    /// * `output_rseeds` — flat concatenation of 32-byte per-output
+    ///   rseed buffers in bundle order (the `output_rseeds` getter on
+    ///   [`PcztForLedger`]).
+    /// * `apdu` — JS-supplied `(Uint8Array) => Promise<Uint8Array>`
+    ///   that exchanges one APDU with the device and returns the raw
+    ///   response (status word included).
+    ///
+    /// Internally:
+    /// 1. Sends `GET_PROOFGEN_KEY` to fetch the device's Sapling PGK.
+    /// 2. Runs `pczt_prove` inside the DB worker with that PGK fed to
+    ///    both external and internal scopes (the Ycash Ledger app only
+    ///    derives one ZIP-32 path).
+    /// 3. Serializes each proven Sapling spend / output into the device's
+    ///    wire format and walks the
+    ///    `INIT_TX → T_IN → T_OUT → S_IN → S_OUT → FEE → SIGN` state
+    ///    machine in [`webzjs_ledger::sign_with_ledger`].
+    /// 4. Cross-checks the device's computed v4 sighash against the
+    ///    host-side `Signer::shielded_sighash` (a mismatch means the
+    ///    device and host disagree about the transaction effects — any
+    ///    signature it produced would reject downstream, so fail loud
+    ///    here).
+    /// 5. Applies every Sapling spend signature and every transparent
+    ///    ECDSA signature back to the PCZT via the `Signer` role.
+    ///
+    /// The returned PCZT is post-Signer but pre-Extractor; the binding
+    /// signature is produced automatically inside `pczt_send` when the
+    /// `TransactionExtractor` runs.
+    pub async fn pczt_sign_with_ledger(
+        &self,
+        pczt: Pczt,
+        spend_alphas: Vec<u8>,
+        output_rseeds: Vec<u8>,
+        apdu: js_sys::Function,
+    ) -> Result<Pczt, Error> {
+        use pczt::roles::signer::Signer;
+        use webzjs_ledger::{transport::ins, ApduCallback};
+
+        let alphas = slice_64_chunks(&spend_alphas).ok_or_else(|| {
+            Error::Generic(format!(
+                "spend_alphas length {} is not a multiple of 64",
+                spend_alphas.len()
+            ))
+        })?;
+        let rseeds = slice_32_chunks(&output_rseeds).ok_or_else(|| {
+            Error::Generic(format!(
+                "output_rseeds length {} is not a multiple of 32",
+                output_rseeds.len()
+            ))
+        })?;
+
+        let apdu_cb = ApduCallback::new(apdu);
+
+        // 1. Fetch the device's Sapling proof-generation key (ak || nsk).
+        let pgk_bytes = apdu_cb
+            .apdu_send_recv(&[
+                webzjs_ledger::transport::CLA,
+                ins::GET_PROOFGEN_KEY,
+                0,
+                0,
+                0,
+            ])
+            .await
+            .map_err(|e| Error::Generic(format!("Ledger GET_PROOFGEN_KEY failed: {e}")))?;
+        if pgk_bytes.len() != 64 {
+            return Err(Error::Generic(format!(
+                "Ledger GET_PROOFGEN_KEY returned {} bytes, expected 64",
+                pgk_bytes.len()
+            )));
+        }
+        let pgk_wrapper = ProofGenerationKey::from_bytes(&pgk_bytes)
+            .map_err(|e| Error::Generic(format!("PGK from device bytes: {e:?}")))?;
+        let sapling_pgk: ::sapling::ProofGenerationKey = pgk_wrapper.into();
+
+        // 2. Prove inside the DB worker. The Ycash Ledger app holds one
+        //    ZIP-32 path; supplying the same PGK as both external and
+        //    internal scope is correct for Ledger-managed accounts
+        //    (every spendable note for the account lives under that
+        //    one PGK).
+        let proven_wrapper = self
+            .handle
+            .pczt_prove(pczt, Some(sapling_pgk.clone()), Some(sapling_pgk))
+            .await
+            .map_err(err_to_error)?;
+        let proven: ::pczt::Pczt = proven_wrapper.into();
+
+        // 3. Build the wire-format input for the Ledger driver and run
+        //    the device pipeline. Borrowing `proven` here ends with the
+        //    `LedgerTxInput`'s owned-byte copy, so `proven` is free to
+        //    move into the Signer below.
+        let ledger_input = build_ledger_tx_input(&proven, &alphas, &rseeds)?;
+        let device_sigs = webzjs_ledger::sign_with_ledger(&ledger_input, &apdu_cb)
+            .await
+            .map_err(|e| Error::Generic(format!("Ledger sign pipeline: {e}")))?;
+
+        // 4. Cross-check sighashes. If the device computed a different
+        //    sighash than the host, every spend signature it produced
+        //    is over a different message and would reject in the
+        //    Extractor's `verify_bundle` step. Fail loudly *here* with
+        //    a clear error rather than letting a broadcast attempt
+        //    surface as a network-side `BadProofSignature`.
+        let mut signer = Signer::new(proven)
+            .map_err(|e| Error::Generic(format!("Signer::new on proven PCZT: {e:?}")))?;
+        let host_sighash = signer.shielded_sighash();
+        if let Some(device_sighash) = device_sigs.shielded_sighash {
+            if device_sighash != host_sighash {
+                return Err(Error::Generic(format!(
+                    "Ledger sighash mismatch: host=0x{} device=0x{}",
+                    hex::encode(host_sighash),
+                    hex::encode(device_sighash)
+                )));
+            }
+        } else if !ledger_input.shielded_spends.is_empty() {
+            return Err(Error::Generic(
+                "Ledger did not return a shielded sighash for a transaction with Sapling spends"
+                    .to_string(),
+            ));
+        }
+
+        // 5. Apply Sapling spend signatures. Bundle order matches the
+        //    order `shielded_spends` was streamed to the device, which
+        //    matches the order the host walks `sapling.spends()`.
+        if device_sigs.spend_auth_sigs.len() != ledger_input.shielded_spends.len() {
+            return Err(Error::Generic(format!(
+                "Ledger returned {} spend auth sigs, expected {}",
+                device_sigs.spend_auth_sigs.len(),
+                ledger_input.shielded_spends.len()
+            )));
+        }
+        for (i, sig_bytes) in device_sigs.spend_auth_sigs.iter().enumerate() {
+            let sig = redjubjub::Signature::<redjubjub::SpendAuth>::from(*sig_bytes);
+            signer
+                .apply_sapling_signature(i, sig)
+                .map_err(|e| Error::Generic(format!("apply_sapling_signature[{i}]: {e:?}")))?;
+        }
+
+        // 6. Apply transparent ECDSA signatures. The device returns
+        //    compact 64-byte (r || s); `Signer::append_transparent_signature`
+        //    takes a `secp256k1::ecdsa::Signature` and handles DER
+        //    encoding + `SIGHASH_ALL` byte + script_sig assembly.
+        if device_sigs.transparent_sigs.len() != ledger_input.transparent_inputs.len() {
+            return Err(Error::Generic(format!(
+                "Ledger returned {} transparent sigs, expected {}",
+                device_sigs.transparent_sigs.len(),
+                ledger_input.transparent_inputs.len()
+            )));
+        }
+        for (i, sig_bytes) in device_sigs.transparent_sigs.iter().enumerate() {
+            let sig = secp256k1::ecdsa::Signature::from_compact(sig_bytes).map_err(|e| {
+                Error::Generic(format!(
+                    "transparent compact sig[{i}] is not a valid ECDSA signature: {e}"
+                ))
+            })?;
+            signer
+                .append_transparent_signature(i, sig)
+                .map_err(|e| Error::Generic(format!("append_transparent_signature[{i}]: {e:?}")))?;
+        }
+
+        Ok(signer.finish().into())
     }
 
     /// Extract the signed, proven PCZT into a `v4` Zcash transaction,
@@ -433,5 +634,67 @@ fn bal_from_data(b: AccountBalanceData) -> AccountBalance {
         unshielded_balance: b.unshielded_balance,
         pending_change: b.pending_change,
         pending_spendable: b.pending_spendable,
+    }
+}
+
+/// JS-facing return value of [`WebWallet::pczt_create_for_ledger`]:
+/// the unsigned PCZT plus per-Sapling-spend and per-Sapling-output
+/// entropy in **bundle order**. JS consumes the entropy as flat byte
+/// vectors (64 bytes per spend, 32 bytes per output) — the matching
+/// `spend_count` / `output_count` getters tell the driver how to slice
+/// them.
+///
+/// Returned across the wasm boundary by reference, so the Pczt is
+/// extracted via [`Self::take_pczt`] (Pczt is `!Copy`); the entropy
+/// readers are cheap copies.
+#[wasm_bindgen]
+pub struct PcztForLedger {
+    pczt: Pczt,
+    spend_alphas: Vec<[u8; 64]>,
+    output_rseeds: Vec<[u8; 32]>,
+}
+
+#[wasm_bindgen]
+impl PcztForLedger {
+    /// Consume `self` and return the inner PCZT.
+    #[wasm_bindgen(js_name = takePczt)]
+    pub fn take_pczt(self) -> Pczt {
+        self.pczt
+    }
+
+    /// Number of Sapling spends in the bundle (each contributes 64
+    /// bytes to [`Self::spend_alphas`]).
+    #[wasm_bindgen(getter, js_name = spendCount)]
+    pub fn spend_count(&self) -> usize {
+        self.spend_alphas.len()
+    }
+
+    /// Number of Sapling outputs in the bundle (each contributes 32
+    /// bytes to [`Self::output_rseeds`]).
+    #[wasm_bindgen(getter, js_name = outputCount)]
+    pub fn output_count(&self) -> usize {
+        self.output_rseeds.len()
+    }
+
+    /// Flat concatenation of per-spend 64-byte `alpha` buffers in
+    /// bundle order. Total length is `64 * spend_count`.
+    #[wasm_bindgen(getter, js_name = spendAlphas)]
+    pub fn spend_alphas(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.spend_alphas.len() * 64);
+        for a in &self.spend_alphas {
+            out.extend_from_slice(a);
+        }
+        out
+    }
+
+    /// Flat concatenation of per-output 32-byte `rseed` buffers in
+    /// bundle order. Total length is `32 * output_count`.
+    #[wasm_bindgen(getter, js_name = outputRseeds)]
+    pub fn output_rseeds(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.output_rseeds.len() * 32);
+        for r in &self.output_rseeds {
+            out.extend_from_slice(r);
+        }
+        out
     }
 }

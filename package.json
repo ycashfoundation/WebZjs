@@ -24,5 +24,8 @@
     "snap-ycash:build": "yarn workspace @ycashfoundation/webzjs-ycash-snap run build",
     "just:build": "just build",
     "just:build-keys": "just build-keys"
+  },
+  "resolutions": {
+    "@ledgerhq/devices@npm:8.14.2": "patch:@ledgerhq/devices@npm%3A8.14.2#~/.yarn/patches/@ledgerhq-devices-npm-8.14.2-b9f1ade9d9.patch"
   }
 }

@@ -45,8 +45,8 @@ const Home: React.FC = () => {
 
           <p className="text-text-muted text-[17px] leading-[1.6] max-w-[46ch]">
             Sapling-native. Local signing. No custodian. Keep your seed
-            encrypted on this device, or hand signing off to the Ycash
-            MetaMask Snap.
+            encrypted on this device, hand signing off to the Ycash
+            MetaMask Snap, or sign with a Ledger.
           </p>
 
           <div className="flex flex-col sm:flex-row flex-wrap gap-3 mt-2">
@@ -77,13 +77,22 @@ const Home: React.FC = () => {
             >
               Import seed phrase
             </button>
-            <button
-              onClick={() => navigate('/connect-snap')}
-              className="text-text-muted hover:text-ycash text-sm px-3 py-3 transition-colors inline-flex items-center gap-1.5"
-            >
-              Or use the MetaMask Snap
-              <span aria-hidden>→</span>
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                onClick={() => navigate('/connect-snap')}
+                className="text-text-muted hover:text-ycash text-sm px-3 py-3 transition-colors inline-flex items-center gap-1.5"
+              >
+                Use MetaMask Snap
+                <span aria-hidden>→</span>
+              </button>
+              <button
+                onClick={() => navigate('/connect-ledger')}
+                className="text-text-muted hover:text-ycash text-sm px-3 py-3 transition-colors inline-flex items-center gap-1.5"
+              >
+                Connect Ledger
+                <span aria-hidden>→</span>
+              </button>
+            </div>
           </div>
         </div>
 
