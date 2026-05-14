@@ -25,16 +25,31 @@ type InlineShieldState =
   | { kind: 'done' }
   | { kind: 'error'; message: string; isUserCancellation: boolean };
 
-function shieldStageLabel(stage: ShieldStage): string {
+/**
+ * The two `awaiting-*` stages need a backend-specific noun — the
+ * external prompter is MetaMask for the snap backend and the device
+ * itself for Ledger. Pass the signing-backend label (currently
+ * `'snap'` | `'ledger'` | `'browser'`) so the copy matches what the
+ * user is actually looking at; default to MetaMask wording for any
+ * unknown backend to keep behavior unchanged for callers that don't
+ * supply one.
+ */
+function shieldStageLabel(stage: ShieldStage, backendLabel?: string): string {
+  const prompter =
+    backendLabel === 'ledger'
+      ? 'Ledger'
+      : backendLabel === 'snap'
+        ? 'MetaMask'
+        : 'MetaMask';
   switch (stage) {
     case 'creating':
       return 'Preparing transaction…';
     case 'awaiting-pgk':
-      return 'Approve view key in MetaMask';
+      return `Approve view key in ${prompter}`;
     case 'proving':
       return 'Proving locally…';
     case 'awaiting-sig':
-      return 'Approve signature in MetaMask';
+      return `Approve tx in ${prompter}`;
     case 'broadcasting':
       return 'Broadcasting…';
     case 'done':
@@ -206,7 +221,7 @@ function AccountSummary() {
   const renderShieldAffordance = () => {
     switch (shieldState.kind) {
       case 'running': {
-        const label = shieldStageLabel(shieldState.stage);
+        const label = shieldStageLabel(shieldState.stage, signingBackend?.label);
         const isUserStep = isUserActionStage(shieldState.stage);
         return (
           <div

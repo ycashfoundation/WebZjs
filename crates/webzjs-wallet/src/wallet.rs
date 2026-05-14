@@ -743,6 +743,133 @@ where
 
         Ok(pczt)
     }
+
+    /// Ledger-signed counterpart to [`Self::pczt_shield`]: builds an
+    /// unsigned shield-from-transparent PCZT and the bundle-order
+    /// entropy needed for the Ledger to compute matching `alpha`/`rseed`
+    /// for each Sapling spend / output the proposal produces.
+    ///
+    /// Sapling spends will be zero for a pure shield (transparent → Sapling),
+    /// but Sapling change/destination outputs do exist, so the device
+    /// still needs per-output `rseed` agreement.
+    ///
+    /// The returned entropy buffers ride alongside the PCZT through
+    /// `pczt_sign_with_ledger` (same shape as
+    /// [`Self::pczt_create_for_ledger`]).
+    pub async fn pczt_shield_for_ledger(
+        &self,
+        account_id: AccountId,
+    ) -> Result<(Pczt, Vec<[u8; 64]>, Vec<[u8; 32]>), Error> {
+        tracing::info!("pczt_shield_for_ledger: Starting for account {:?}", account_id);
+
+        // Sync gate — same logic as pczt_shield: transparent UTXO
+        // discovery requires an explicit refresh_utxos against
+        // lightwalletd, which only happens inside sync::run.
+        if self.db.read().await.chain_height()?.is_none() {
+            return Err(Error::Generic(
+                "Wallet has not been synced yet. Please sync before shielding.".to_string(),
+            ));
+        }
+        self.sync().await?;
+
+        let change_strategy = MultiOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedProtocol::Sapling,
+            DustOutputPolicy::default(),
+            SplitPolicy::with_min_output_value(
+                NonZeroUsize::new(self.target_note_count)
+                    .ok_or(Error::FailedToCreateTransaction)?,
+                Zatoshis::from_u64(self.min_split_output_value)?,
+            ),
+        );
+        let input_selector = GreedyInputSelector::new();
+        let mut db = self.db.write().await;
+
+        let max_height = db
+            .chain_height()?
+            .ok_or_else(|| Error::Generic("No chain height, can't shield".to_string()))?;
+        let transparent_balances =
+            db.get_transparent_balances(account_id, max_height.into(), self.min_confirmations)?;
+        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
+
+        if from_addrs.is_empty() {
+            return Err(Error::Generic(
+                "No transparent UTXOs to shield. Make sure sync ran and your s1 address has funds."
+                    .to_string(),
+            ));
+        }
+
+        let proposal = propose_shielding::<_, _, _, _, <W as WalletCommitmentTrees>::Error>(
+            &mut *db,
+            &self.network,
+            &input_selector,
+            &change_strategy,
+            SHIELDING_THRESHOLD,
+            &from_addrs,
+            account_id,
+            self.min_confirmations,
+        )
+        .map_err(|e| Error::Generic(format!("propose_shielding for ledger: {:?}", e)))?;
+
+        // Same entropy bookkeeping as pczt_create_for_ledger — reuse
+        // the shared helper so the spend/output counting rules stay
+        // in lock-step with build_proposed_transaction's branching.
+        // For a pure shield, spends == 0 and outputs >= 1 (the
+        // Sapling destination, plus change if any).
+        let (n_spends, n_outputs) = count_sapling_entropy_for_proposal(&proposal, &self.network)?;
+        let mut spend_alphas = Vec::with_capacity(n_spends);
+        for _ in 0..n_spends {
+            let mut buf = [0u8; 64];
+            OsRng.fill_bytes(&mut buf);
+            spend_alphas.push(buf);
+        }
+        let mut output_rseeds = Vec::with_capacity(n_outputs);
+        for _ in 0..n_outputs {
+            let mut buf = [0u8; 32];
+            OsRng.fill_bytes(&mut buf);
+            output_rseeds.push(buf);
+        }
+        let ledger_entropy = LedgerEntropy {
+            spend_alphas,
+            output_rseeds,
+        };
+
+        let (pczt, bundle_outputs) = create_pczt_from_proposal_for_ledger::<
+            _,
+            _,
+            <W as InputSource>::Error,
+            _,
+            <StandardFeeRule as FeeRule>::Error,
+            _,
+        >(
+            &mut *db,
+            &self.network,
+            account_id,
+            // `OvkPolicy::Sender` is the snap-shield default and works
+            // because the snap registers a UFVK with a transparent
+            // AccountPubKey, so `select_ovk(External, &[Transparent])`
+            // resolves to the transparent external OVK. The Ledger
+            // path registers a Sapling-only UFVK (the device's
+            // transparent leaf is an imported standalone pubkey, not
+            // an AccountPubKey), so the same OVK lookup fails with
+            // `KeyNotAvailable(Transparent)`. Drop the OVK entirely —
+            // we're shielding into the wallet's own Sapling pool, and
+            // the wallet detects the new note via its IVK regardless
+            // of the OVK.
+            OvkPolicy::Discard,
+            &proposal,
+            &ledger_entropy,
+        )
+        .map_err(|e| Error::PcztCreate(format!("{:?}", e)))?;
+
+        Ok((
+            pczt,
+            bundle_outputs.spend_alphas_bundle_order,
+            bundle_outputs.output_rseeds_bundle_order,
+        ))
+    }
+
     /// Sync-if-behind + propose_transfer prologue shared between the
     /// snap-signed (`pczt_create`) and Ledger-signed
     /// (`pczt_create_for_ledger`) PCZT paths. Builds a one-payment

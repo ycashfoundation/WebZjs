@@ -193,17 +193,54 @@ export class LedgerSigningBackend implements SigningBackend {
   }
 
   async shieldAll(
-    _wallet: WebWallet,
-    _accountId: number,
-    _onStage?: (stage: ShieldStage) => void,
+    wallet: WebWallet,
+    accountId: number,
+    onStage?: (stage: ShieldStage) => void,
   ): Promise<void> {
-    // The device exposes a single transparent leaf and no chain code,
-    // so the wallet never tracks a transparent receiver for Ledger
-    // accounts (see the class doc). Shielding from that leaf is only
-    // possible by importing the WIF into a wallet that has full key
-    // material — `ycash-ledger-recovery` is the supported path.
-    throw new Error(
-      'Shielding through the Ledger is not yet supported — the device-side transparent signing path for shield-from-transparent PCZTs has not been wired up. To move transparent funds from your Ledger s1 address into the Sapling pool, export the WIF via the ycash-ledger-recovery tool and import into Ywallet.',
+    // Make sure the device is reachable before we burn a sync + prove
+    // cycle. The first APDU happens inside `pczt_sign_with_ledger`
+    // (GET_PROOFGEN_KEY), but we ask the user to plug in / unlock now
+    // so the UX surfaces the prompt before anything expensive runs.
+    await this.ensureConnected();
+
+    // 1. Build the unsigned shield-from-transparent PCZT and pull the
+    //    bundle-order entropy buffers the device needs to reproduce
+    //    host-side `alpha`/`rseed`. Same flat-bytes shape as
+    //    pczt_create_for_ledger; spend_alphas is typically empty for a
+    //    pure shield, output_rseeds covers the Sapling destination +
+    //    change.
+    onStage?.('creating');
+    const forLedger = await wallet.pczt_shield_for_ledger(accountId);
+    const spendAlphas = forLedger.spendAlphas;
+    const outputRseeds = forLedger.outputRseeds;
+    const unsigned = forLedger.takePczt();
+
+    // 2. Drive the device through prove + sign. The wasm side fetches
+    //    the device's PGK, runs Groth16 in the DB worker, walks the
+    //    v4/ZIP-243 state machine over the proven bundle (ADD_T_IN for
+    //    each transparent input, ADD_S_OUT_NC for each Sapling
+    //    output), cross-checks the device's sighash against the host's
+    //    over the proven PCZT, then applies the per-input transparent
+    //    ECDSA sigs and per-Sapling-spend `spend_auth_sig`s back to
+    //    the PCZT.
+    // No 'awaiting-pgk' tick for Ledger: GET_PROOFGEN_KEY returns
+    // immediately on-device without a user prompt, so flashing
+    // "Approve view key in Ledger" would mislead the user into
+    // looking at the device for something that isn't there. The snap
+    // backend keeps that stage because MetaMask does pop a dialog.
+    onStage?.('proving');
+    onStage?.('awaiting-sig');
+    const signed = await wallet.pczt_sign_with_ledger(
+      unsigned,
+      spendAlphas,
+      outputRseeds,
+      this.apdu,
     );
+
+    // 3. Broadcast. The Extractor inside pczt_send applies the binding
+    //    signature; nothing more for the host to do.
+    onStage?.('broadcasting');
+    await wallet.pczt_send(signed);
+    onStage?.('done');
   }
 }

@@ -350,11 +350,10 @@ const ConnectLedger: React.FC = () => {
       </div>
 
       <div className="mt-12 pt-6 border-t border-border font-mono text-[11px] uppercase tracking-[0.15em] text-text-dim leading-loose">
-        Receive at both ys1 (sapling) and s1 (transparent). Spending
-        transparent UTXOs back through the device is not yet
-        supported — to shield those funds, use the standalone
-        ycash-ledger-recovery tool to export the WIF and import into
-        ywallet.
+        Receive at both ys1 (sapling) and s1 (transparent). Shielding
+        s1 funds into the sapling pool is driven through the device.
+        Sending transparent → external transparent addresses is not
+        wired up yet.
       </div>
     </div>
   );

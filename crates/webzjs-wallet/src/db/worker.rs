@@ -160,6 +160,15 @@ pub enum Request {
     PcztShield {
         account_id: u32,
     },
+    /// Ledger-signed counterpart to `PcztShield`: returns an unsigned
+    /// shield-from-transparent PCZT plus the bundle-order entropy the
+    /// device needs to reproduce host-side `alpha`/`rseed` (same
+    /// shape as `PcztCreateForLedger`). Sapling spends will be zero
+    /// for a pure shield, but Sapling destination + change outputs
+    /// still need `rseed` agreement.
+    PcztShieldForLedger {
+        account_id: u32,
+    },
     /// Paginated wallet transaction history. Gated behind `wasm` because
     /// the response type lives in the wasm-bindgen-exposed module; native
     /// test builds don't exercise this op.
@@ -558,6 +567,23 @@ impl DbWorkerHandle {
     pub async fn pczt_shield(&self, account_id: u32) -> Result<Pczt, WorkerError> {
         match self.send(Request::PcztShield { account_id }).await? {
             Response::Pczt(pczt) => Ok(pczt),
+            _ => Err(WorkerError::UnexpectedResponse),
+        }
+    }
+
+    pub async fn pczt_shield_for_ledger(
+        &self,
+        account_id: u32,
+    ) -> Result<(Pczt, Vec<[u8; 64]>, Vec<[u8; 32]>), WorkerError> {
+        match self
+            .send(Request::PcztShieldForLedger { account_id })
+            .await?
+        {
+            Response::PcztForLedger {
+                pczt,
+                spend_alphas,
+                output_rseeds,
+            } => Ok((pczt, spend_alphas, output_rseeds)),
             _ => Err(WorkerError::UnexpectedResponse),
         }
     }
@@ -1140,6 +1166,21 @@ async fn handle(req: Request, wallet: &mut WorkerWallet) -> Result<Response, Str
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(Response::Pczt(pczt.into()))
+        }
+
+        Request::PcztShieldForLedger { account_id } => {
+            let account_uuid = account_uuid_from_u32(wallet, account_id)
+                .await
+                .ok_or_else(|| format!("Account not found: {account_id}"))?;
+            let (pczt, spend_alphas, output_rseeds) = wallet
+                .pczt_shield_for_ledger(account_uuid)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Response::PcztForLedger {
+                pczt: pczt.into(),
+                spend_alphas,
+                output_rseeds,
+            })
         }
 
         Request::DetectBirthdayFromTransparentAddress {

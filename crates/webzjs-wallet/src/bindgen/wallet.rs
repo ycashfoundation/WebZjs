@@ -372,7 +372,29 @@ impl WebWallet {
 
         let apdu_cb = ApduCallback::new(apdu);
 
-        // 1. Fetch the device's Sapling proof-generation key (ak || nsk).
+        // 1a. Warm the device's key cache with a GET_FVK before
+        //     GET_PROOFGEN_KEY. The Ycash app's GET_PROOFGEN_KEY
+        //     handler (zcash-ledger/src/apdu/dispatcher.c:258-266)
+        //     reads `G_context.proofk_info.ak` directly without
+        //     calling `derive_default_keys()` first, so if the device
+        //     was just powered on / unlocked / app re-opened, the ak
+        //     is uninitialized zeros and parsing fails with "invalid
+        //     ak". GET_FVK (INS 0x07) does call `derive_default_keys`
+        //     and populates `G_context`, after which GET_PROOFGEN_KEY
+        //     reads valid bytes. Discard the response — we only need
+        //     the side effect on device state.
+        apdu_cb
+            .apdu_send_recv(&[
+                webzjs_ledger::transport::CLA,
+                ins::GET_FVK,
+                0,
+                0,
+                0,
+            ])
+            .await
+            .map_err(|e| Error::Generic(format!("Ledger GET_FVK (warm-up) failed: {e}")))?;
+
+        // 1b. Fetch the device's Sapling proof-generation key (ak || nsk).
         let pgk_bytes = apdu_cb
             .apdu_send_recv(&[
                 webzjs_ledger::transport::CLA,
@@ -495,6 +517,31 @@ impl WebWallet {
             .pczt_shield(account_id)
             .await
             .map_err(err_to_error)
+    }
+
+    /// Ledger-signed counterpart to [`Self::pczt_shield`]. Builds the
+    /// unsigned shield-from-transparent PCZT and the bundle-order
+    /// entropy needed for the device to compute matching `alpha` /
+    /// `rseed`. Sapling spends are usually empty (transparent →
+    /// Sapling), but the Sapling destination + change still need
+    /// `rseed` agreement.
+    ///
+    /// Hand the result to [`Self::pczt_sign_with_ledger`] and then
+    /// [`Self::pczt_send`].
+    pub async fn pczt_shield_for_ledger(
+        &self,
+        account_id: u32,
+    ) -> Result<PcztForLedger, Error> {
+        let (pczt, spend_alphas, output_rseeds) = self
+            .handle
+            .pczt_shield_for_ledger(account_id)
+            .await
+            .map_err(err_to_error)?;
+        Ok(PcztForLedger {
+            pczt,
+            spend_alphas,
+            output_rseeds,
+        })
     }
 
     /// Autodetect the wallet's birthday by scanning for the first
